@@ -6,11 +6,22 @@ import { CAMERA_MODEL, CAMERA_MANAGER } from '../../core/types';
 import { CameraManager } from '../../core/model/CameraManager';
 
 export class Scene3DManager {
+  private static instance: Scene3DManager;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
   private renderer: THREE.WebGLRenderer;
   private cameraModel: CameraModel | null = null;
+
+  /**
+   * Gets the singleton instance of Scene3DManager
+   */
+  static getInstance(): Scene3DManager {
+    if (!Scene3DManager.instance) {
+      Scene3DManager.instance = new Scene3DManager();
+    }
+    return Scene3DManager.instance;
+  }
 
   constructor() {
     this.scene = new THREE.Scene();
