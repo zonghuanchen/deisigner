@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { BaseModel } from './BaseModel';
+import { ModelRegistry } from '../ModelRegistry';
+import { CAMERA_MODEL } from '../types';
 
 export type CameraType = 'orthographic' | 'perspective';
 export type CameraMode = 'roaming' | '3d';
@@ -14,7 +17,7 @@ export interface CameraEventMap {
   change: CameraChangeEvent;
 }
 
-export class CameraModel extends THREE.EventDispatcher<CameraEventMap> {
+export class CameraModel extends BaseModel {
   private _cameraType: CameraType;
   private _position: THREE.Vector3;
   private _target: THREE.Vector3;
@@ -24,9 +27,10 @@ export class CameraModel extends THREE.EventDispatcher<CameraEventMap> {
     type: CameraType = 'perspective',
     position: THREE.Vector3 = new THREE.Vector3(0, 0, 5),
     target: THREE.Vector3 = new THREE.Vector3(0, 0, 0),
-    mode: CameraMode = '3d'
+    mode: CameraMode = '3d',
+    id?: string
   ) {
-    super();
+    super(id);
     this._cameraType = type;
     this._position = position.clone();
     this._target = target.clone();
@@ -81,6 +85,10 @@ export class CameraModel extends THREE.EventDispatcher<CameraEventMap> {
    * Triggers a change event to notify listeners that the camera has been modified
    */
   dirty(): void {
+    this._isDirty = true;
     this.dispatchEvent({ type: 'change', camera: this });
   }
 }
+
+// Register the model
+ModelRegistry.getInstance().register(CAMERA_MODEL, CameraModel);

@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { CameraModel, CameraType, CameraMode, CameraChangeEvent, CameraChangeListener } from './CameraModel';
+import { BaseModel } from './BaseModel';
+import { ModelRegistry } from '../ModelRegistry';
+import { CAMERA_MANAGER } from '../types';
 
 export type CameraPreset = 'orthographic' | '3d' | 'roaming';
 
@@ -7,13 +10,13 @@ export interface CameraManagerEventMap {
   change: CameraChangeEvent;
 }
 
-export class CameraManager extends THREE.EventDispatcher<CameraManagerEventMap> {
+export class CameraManager extends BaseModel {
   private cameras: Map<CameraPreset, CameraModel>;
   private activeCamera: CameraModel | null;
   private currentPreset: CameraPreset | null;
 
-  constructor() {
-    super();
+  constructor(id?: string) {
+    super(id);
     this.cameras = new Map();
     this.activeCamera = null;
     this.currentPreset = null;
@@ -104,3 +107,6 @@ export class CameraManager extends THREE.EventDispatcher<CameraManagerEventMap> 
     return Array.from(this.cameras.keys());
   }
 }
+
+// Register the model
+ModelRegistry.getInstance().register(CAMERA_MANAGER, CameraManager);
