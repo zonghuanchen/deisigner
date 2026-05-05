@@ -1,4 +1,5 @@
 import { BaseModel } from './BaseModel';
+import { WallModel } from './WallModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { FLOOR_MODEL } from '../types';
 
@@ -63,6 +64,27 @@ export class FloorModel extends BaseModel {
       this._height = value;
       this.dirty();
     }
+  }
+
+  /**
+   * Gets all wall models on this floor
+   */
+  get walls(): WallModel[] {
+    return this._children.filter(child => child instanceof WallModel) as WallModel[];
+  }
+
+  /**
+   * Adds a wall to this floor
+   */
+  addWall(wall: WallModel): void {
+    this.addChild(wall);
+  }
+
+  /**
+   * Removes a wall from this floor by instance or id
+   */
+  removeWall(wall: WallModel | string): void {
+    this.removeChild(wall);
   }
 
   /**

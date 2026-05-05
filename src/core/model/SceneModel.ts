@@ -1,5 +1,6 @@
 import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
+import { FloorModel } from './FloorModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { SCENE_MODEL } from '../types';
 
@@ -27,6 +28,8 @@ export class SceneModel extends BaseModel {
   ) {
     super(id);
     this._name = name;
+    // 默认创建一个楼层
+    this.addChild(new FloorModel(1, 2.8));
   }
 
   /**
@@ -47,24 +50,48 @@ export class SceneModel extends BaseModel {
   }
 
   /**
-   * Gets all wall models in the scene
+   * Gets all floor models in the scene
    */
-  get walls(): WallModel[] {
-    return this._children.filter(child => child instanceof WallModel) as WallModel[];
+  get floors(): FloorModel[] {
+    return this._children.filter(child => child instanceof FloorModel) as FloorModel[];
   }
 
   /**
-   * Adds a wall to the scene
+   * Gets the default (first) floor model
+   */
+  get defaultFloor(): FloorModel | undefined {
+    return this.floors[0];
+  }
+
+  /**
+   * Gets all wall models in the scene (across all floors)
+   */
+  get walls(): WallModel[] {
+    return this.floors.flatMap(floor => floor.walls);
+  }
+
+  /**
+   * Adds a wall to the default floor
    */
   addWall(wall: WallModel): void {
-    this.addChild(wall);
+    const floor = this.defaultFloor;
+    if (floor) {
+      floor.addWall(wall);
+    }
   }
 
   /**
    * Removes a wall from the scene by instance or id
    */
   removeWall(wall: WallModel | string): void {
-    this.removeChild(wall);
+    const wallId = typeof wall === 'string' ? wall : wall.id;
+    for (const floor of this.floors) {
+      const target = floor.walls.find(w => w.id === wallId);
+      if (target) {
+        floor.removeWall(target);
+        return;
+      }
+    }
   }
 
   /**

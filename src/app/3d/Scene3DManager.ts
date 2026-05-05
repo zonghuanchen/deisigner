@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CameraModel } from '../../core/model/CameraModel';
-import { ModelRegistry } from '../../core/ModelRegistry';
-import { CAMERA_MODEL, CAMERA_MANAGER } from '../../core/types';
-import { CameraManager } from '../../core/model/CameraManager';
+import { CameraModel, CameraManager, App } from '../../core';
+import { DisplayObject3D } from './display/DisplayObject3D';
+import { Scene } from './display/Scene';
 
 export class Scene3DManager {
   private static instance: Scene3DManager;
@@ -102,11 +101,18 @@ export class Scene3DManager {
 
     // Setup camera model integration
     this.setupCameraModel();
+
+    // Check if a Scene display object is already registered and add it
+    for (const display of DisplayObject3D.getAll()) {
+      if (display instanceof Scene) {
+        this.scene.add(display.node);
+      }
+    }
   }
 
   private setupCameraModel() {
-    // Get CameraManager to retrieve the active camera model
-    const cameraManager = ModelRegistry.getInstance().get<CameraManager>(CAMERA_MANAGER);
+    // Get CameraManager instance from App to retrieve the active camera model
+    const cameraManager = App.getInstance().getCameraManager();
     if (cameraManager) {
       const activeCamera = cameraManager.getActiveCamera();
       if (activeCamera) {

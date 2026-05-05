@@ -1,3 +1,4 @@
+import { App } from '../core';
 import { Scene2D } from './2d';
 import { Scene3D } from './3d';
 import { VIEWER_2D, VIEWER_3D, ViewerType } from './types';
@@ -12,6 +13,7 @@ export interface AppViewerOptions {
 }
 
 export class AppViewer {
+  private app: App;
   private primary: ViewerType;
   private scene2d: Scene2D | null = null;
   private scene3d: Scene3D | null = null;
@@ -20,6 +22,7 @@ export class AppViewer {
   private renderTimer: RenderTimer;
 
   constructor(options: AppViewerOptions = {}) {
+    this.app = App.getInstance();
     this.primary = options.defaultPrimary ?? VIEWER_3D;
     this.renderTimer = new RenderTimer();
   }

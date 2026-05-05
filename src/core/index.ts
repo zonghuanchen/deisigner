@@ -1,15 +1,35 @@
 import { CameraManager } from './model/CameraManager';
+import { SceneModel } from './model/SceneModel';
 
-export interface IModelManager {
+export interface IApp {
+  getScene(): SceneModel;
   getCameraManager(): CameraManager;
 }
 
-export class ModelManager implements IModelManager {
+export class App implements IApp {
+  private static instance: App | null = null;
+  private scene: SceneModel;
   private cameraManager: CameraManager;
 
-  constructor() {
-    // 默认创建相机管理对象
+  private constructor() {
+    // 默认创建场景和相机管理对象
+    this.scene = new SceneModel();
     this.cameraManager = new CameraManager();
+  }
+
+  static getInstance(): App {
+    if (!App.instance) {
+      App.instance = new App();
+    }
+    return App.instance;
+  }
+
+  /**
+   * 获取场景
+   * @returns 场景实例
+   */
+  getScene(): SceneModel {
+    return this.scene;
   }
 
   /**
