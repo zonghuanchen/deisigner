@@ -1,13 +1,19 @@
+import * as THREE from 'three';
+
 /**
  * Registry class for data models in the core system.
  * Provides a centralized way to register and retrieve model classes.
  */
-export class ModelRegistry {
+export class ModelRegistry extends THREE.EventDispatcher<any> {
   private static instance: ModelRegistry;
   private models: Map<string, any> = new Map();
   private display3dModels: Map<string, any> = new Map();
-  private display2dModels: Map<string, any> = new Map() ;
+  private display2dModels: Map<string, any> = new Map();
 
+  private constructor() {
+    super();
+    this.addEventListener('createModel', this.onCreateModel.bind(this));
+  }
 
   /**
    * Gets the singleton instance of ModelRegistry
@@ -17,6 +23,23 @@ export class ModelRegistry {
       ModelRegistry.instance = new ModelRegistry();
     }
     return ModelRegistry.instance;
+  }
+
+  private onCreateModel(event: any): void {
+    const model = event.model;
+    if (!model) return;
+
+    for (const [key, ModelClass] of this.models.entries()) {
+      if (model instanceof ModelClass) {
+        if (this.display3dModels.has(key)) {
+          new (this.display3dModels.get(key))(model);
+        }
+        if (this.display2dModels.has(key)) {
+          (this.display2dModels.get(key))(model);
+        }
+        break;
+      }
+    }
   }
 
   /**
@@ -43,19 +66,6 @@ export class ModelRegistry {
       console.warn(`Model with key '${key}' is already registered. Overwriting.`);
     }
     this.display2dModels.set(key, displayClass);
-  }
-
-  create (key: string, args: any[]) {
-    if (!this.models.has(key)) {
-      return console.error(`Model with key '${key}' is not registered.`);
-    }
-    const model = new (this.models.get(key))(...args);
-    if (this.display3dModels.has(key)) {
-       new (this.display3dModels.get(key))(model);
-    }
-    if (this.display2dModels.has(key)) {
-      (this.display2dModels.get(key))(model);
-    }
   }
 
   /**

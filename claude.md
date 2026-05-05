@@ -19,3 +19,7 @@
 --core 数据建模目录，纯数据代码，不包含展示层的逻辑
 --app 展示层逻辑，包含3d、2d、ui
 --editor 项目代码，把core和app引入进来，组装成整个设计软件
+
+## 整体结构设计
+
+`core/model`数据层的每个对象都会注册到`ModelRegistry`中，`app/3d/display`下会对每个数据模型注册对应3d展示对象。当数据对象被创建时，`ModelRegistry`就会对应的去创建3d展示对象，并用数据对象的id做对应。

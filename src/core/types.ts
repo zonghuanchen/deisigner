@@ -2,3 +2,6 @@
 export const CAMERA_MODEL = 'CameraModel';
 export const CAMERA_MANAGER = 'CameraManager';
 export const FACE_MODEL = 'FaceModel';
+export const FLOOR_MODEL = 'FloorModel';
+export const WALL_MODEL = 'WallModel';
+export const SCENE_MODEL = 'SceneModel';

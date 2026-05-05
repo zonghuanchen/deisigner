@@ -6,9 +6,9 @@ import { App } from './App';
 
 const root = createRoot(document.getElementById('root')!);
 root.render(
-  <StrictMode>
-    <HeroUIProvider>
-      <App />
-    </HeroUIProvider>
-  </StrictMode>,
+    <StrictMode>
+        <HeroUIProvider>
+            <App />
+        </HeroUIProvider>
+    </StrictMode>,
 );
