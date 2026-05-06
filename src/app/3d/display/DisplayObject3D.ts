@@ -15,6 +15,36 @@ export abstract class DisplayObject3D<TModel extends BaseModel = BaseModel> {
     this.model = model;
     this._node = node;
     DisplayObject3D.add(this.model.id, this);
+
+    // Sync existing child models to this display node
+    this.syncChildren();
+
+    // Listen for child model additions/removals
+    this.model.addEventListener('addChild', this.onModelAddChild.bind(this));
+    this.model.addEventListener('removeChild', this.onModelRemoveChild.bind(this));
+  }
+
+  private syncChildren(): void {
+    for (const child of this.model.children) {
+      const childDisplay = DisplayObject3D.get(child.id);
+      if (childDisplay) {
+        this._node.add(childDisplay.node);
+      }
+    }
+  }
+
+  private onModelAddChild(event: any): void {
+    const childDisplay = DisplayObject3D.get(event.child.id);
+    if (childDisplay) {
+      this._node.add(childDisplay.node);
+    }
+  }
+
+  private onModelRemoveChild(event: any): void {
+    const childDisplay = DisplayObject3D.get(event.child.id);
+    if (childDisplay) {
+      this._node.remove(childDisplay.node);
+    }
   }
 
   /** The concrete Three.js node (Mesh, Group, etc.) representing this display object */

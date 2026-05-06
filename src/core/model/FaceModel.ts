@@ -17,15 +17,20 @@ export interface FaceEventMap {
 
 export class FaceModel extends BaseModel {
   private _outerContour: THREE.Vector3[];
+  private _innerContours: THREE.Vector3[][];
   private _material: Material;
 
   constructor(
     outerContour: THREE.Vector3[] = [],
+    innerContours: THREE.Vector3[][] = [],
     material: Material = new Material(),
     id?: string
   ) {
     super(id);
     this._outerContour = outerContour.map(point => point.clone());
+    this._innerContours = innerContours.map(contour =>
+      contour.map(point => point.clone())
+    );
     this._material = material;
   }
 
@@ -35,6 +40,17 @@ export class FaceModel extends BaseModel {
 
   set outerContour(value: THREE.Vector3[]) {
     this._outerContour = value.map(point => point.clone());
+    this.dirty();
+  }
+
+  get innerContours(): THREE.Vector3[][] {
+    return this._innerContours;
+  }
+
+  set innerContours(value: THREE.Vector3[][]) {
+    this._innerContours = value.map(contour =>
+      contour.map(point => point.clone())
+    );
     this.dirty();
   }
 
@@ -83,6 +99,70 @@ export class FaceModel extends BaseModel {
    */
   get contourPointCount(): number {
     return this._outerContour.length;
+  }
+
+  /**
+   * Adds an inner contour (hole)
+   * @param contour - The inner contour points to add
+   */
+  addInnerContour(contour: THREE.Vector3[]): void {
+    this._innerContours.push(contour.map(point => point.clone()));
+    this.dirty();
+  }
+
+  /**
+   * Removes an inner contour by index
+   * @param index - The index of the inner contour to remove
+   */
+  removeInnerContour(index: number): void {
+    if (index >= 0 && index < this._innerContours.length) {
+      this._innerContours.splice(index, 1);
+      this.dirty();
+    }
+  }
+
+  /**
+   * Gets an inner contour by index
+   * @param index - The index of the inner contour
+   */
+  getInnerContour(index: number): THREE.Vector3[] | undefined {
+    if (index >= 0 && index < this._innerContours.length) {
+      return this._innerContours[index];
+    }
+    return undefined;
+  }
+
+  /**
+   * Updates a point in an inner contour
+   * @param contourIndex - The index of the inner contour
+   * @param pointIndex - The index of the point in the inner contour
+   * @param point - The new point value
+   */
+  updateInnerContourPoint(contourIndex: number, pointIndex: number, point: THREE.Vector3): void {
+    if (
+      contourIndex >= 0 &&
+      contourIndex < this._innerContours.length &&
+      pointIndex >= 0 &&
+      pointIndex < this._innerContours[contourIndex].length
+    ) {
+      this._innerContours[contourIndex][pointIndex].copy(point);
+      this.dirty();
+    }
+  }
+
+  /**
+   * Clears all inner contours
+   */
+  clearInnerContours(): void {
+    this._innerContours = [];
+    this.dirty();
+  }
+
+  /**
+   * Gets the number of inner contours
+   */
+  get innerContourCount(): number {
+    return this._innerContours.length;
   }
 
   /**

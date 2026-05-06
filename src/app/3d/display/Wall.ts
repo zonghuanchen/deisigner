@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 import { DisplayObject3D } from './DisplayObject3D';
-import { SceneModel } from '../../../core/model/SceneModel';
+import { WallModel } from '../../../core/model/WallModel';
 import { ModelRegistry } from '../../../core/ModelRegistry';
-import { SCENE_MODEL } from '../../../core/types';
+import { WALL_MODEL } from '../../../core/types';
 
 /**
- * 3D display object for a SceneModel.
- * Manages a THREE.Group that contains all child display objects (walls, etc.).
+ * 3D display object for a WallModel.
+ * Manages a THREE.Group that contains child face display objects.
+ * The actual visual representation is rendered by Face display objects.
  */
-export class Scene extends DisplayObject3D<SceneModel> {
+export class Wall extends DisplayObject3D<WallModel> {
     private childDisplays: Map<string, DisplayObject3D>;
 
-    constructor(model: SceneModel) {
+    constructor(model: WallModel) {
         super(model, new THREE.Group());
         this.childDisplays = new Map();
     }
@@ -24,7 +25,7 @@ export class Scene extends DisplayObject3D<SceneModel> {
     }
 
     /**
-     * Dispose this scene and all child display objects
+     * Dispose this wall and all child display objects
      */
     dispose(): void {
         for (const [id, display] of this.childDisplays) {
@@ -36,4 +37,4 @@ export class Scene extends DisplayObject3D<SceneModel> {
 }
 
 // Register the 3D display model
-ModelRegistry.getInstance().registerDisplay3d(SCENE_MODEL, Scene);
+ModelRegistry.getInstance().registerDisplay3d(WALL_MODEL, Wall);
