@@ -1,47 +1,47 @@
 export type RenderCallback = () => void;
 
 export class RenderTimer {
-  private callbacks: Set<RenderCallback> = new Set();
-  private animationId: number | null = null;
-  private isRunning: boolean = false;
+    private callbacks: Set<RenderCallback> = new Set();
+    private animationId: number | null = null;
+    private isRunning: boolean = false;
 
-  register(callback: RenderCallback): void {
-    this.callbacks.add(callback);
-  }
-
-  unregister(callback: RenderCallback): void {
-    this.callbacks.delete(callback);
-  }
-
-  start(): void {
-    if (!this.isRunning) {
-      this.isRunning = true;
-      this.loop();
+    register(callback: RenderCallback): void {
+        this.callbacks.add(callback);
     }
-  }
 
-  stop(): void {
-    this.isRunning = false;
-    if (this.animationId !== null) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
+    unregister(callback: RenderCallback): void {
+        this.callbacks.delete(callback);
     }
-  }
 
-  private loop = () => {
-    if (!this.isRunning) return;
+    start(): void {
+        if (!this.isRunning) {
+            this.isRunning = true;
+            this.loop();
+        }
+    }
 
-    this.animationId = requestAnimationFrame(this.loop);
+    stop(): void {
+        this.isRunning = false;
+        if (this.animationId !== null) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+    }
 
-    // Execute all registered render callbacks
-    this.callbacks.forEach((callback) => callback());
-  }
+    private loop = () => {
+        if (!this.isRunning) return;
 
-  clear(): void {
-    this.callbacks.clear();
-  }
+        this.animationId = requestAnimationFrame(this.loop);
 
-  getCallbackCount(): number {
-    return this.callbacks.size;
-  }
+        // Execute all registered render callbacks
+        this.callbacks.forEach((callback) => callback());
+    }
+
+    clear(): void {
+        this.callbacks.clear();
+    }
+
+    getCallbackCount(): number {
+        return this.callbacks.size;
+    }
 }

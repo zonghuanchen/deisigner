@@ -3,36 +3,36 @@ import { RenderTimer } from '../timer';
 import { Scene3DManager } from './Scene3DManager';
 
 export class Scene3D {
-  private sceneManager: Scene3DManager;
-  private renderTimer: RenderTimer | null = null;
+    private sceneManager: Scene3DManager;
+    private renderTimer: RenderTimer | null = null;
 
-  constructor(container: HTMLElement, renderTimer?: RenderTimer) {
-    // Initialize scene using Scene3DManager singleton (now includes camera logic)
-    this.sceneManager = Scene3DManager.getInstance();
-    
-    // Set up renderer container
-    this.sceneManager.setRendererContainer(container);
-    
-    // Register render callback to timer if provided
-    if (renderTimer) {
-      this.renderTimer = renderTimer;
-      renderTimer.register(() => this.render());
+    constructor(container: HTMLElement, renderTimer?: RenderTimer) {
+        // Initialize scene using Scene3DManager singleton (now includes camera logic)
+        this.sceneManager = Scene3DManager.getInstance();
+        
+        // Set up renderer container
+        this.sceneManager.setRendererContainer(container);
+        
+        // Register render callback to timer if provided
+        if (renderTimer) {
+            this.renderTimer = renderTimer;
+            renderTimer.register(() => this.render());
+        }
     }
-  }
 
-  getScene(): THREE.Scene {
-    return this.sceneManager.getScene();
-  }
+    getScene(): THREE.Scene {
+        return this.sceneManager.getScene();
+    }
 
-  add(object: THREE.Object3D): void {
-    this.sceneManager.add(object);
-  }
+    add(object: THREE.Object3D): void {
+        this.sceneManager.add(object);
+    }
 
-  remove(object: THREE.Object3D): void {
-    this.sceneManager.remove(object);
-  }
+    remove(object: THREE.Object3D): void {
+        this.sceneManager.remove(object);
+    }
 
-  render() {
-    this.sceneManager.render();
-  }
+    render() {
+        this.sceneManager.render();
+    }
 }
