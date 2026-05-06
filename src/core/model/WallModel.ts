@@ -37,6 +37,7 @@ export class WallModel extends BaseModel {
     this._to = to.clone();
     this._width = width;
     this._height = height;
+    this.updateFaces();
   }
 
   /**
@@ -133,7 +134,47 @@ export class WallModel extends BaseModel {
    */
   dirty(): void {
     this._isDirty = true;
+    this.updateFaces();
     this.dispatchEvent({ type: 'change', wall: this });
+  }
+
+  private updateFaces(): void {
+    for (const face of [...this.faces]) {
+      this.removeFace(face);
+    }
+
+    const from = this._from;
+    const to = this._to;
+    const halfWidth = this._width / 2;
+    const height = this._height;
+
+    const direction = new THREE.Vector3().subVectors(to, from);
+    const length = direction.length();
+
+    if (length === 0 || height === 0 || this._width === 0) {
+      return;
+    }
+
+    const dir = direction.clone().normalize();
+    const perp = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+    const offset = perp.clone().multiplyScalar(halfWidth);
+
+    const blf = new THREE.Vector3().addVectors(from, offset);
+    const blb = new THREE.Vector3().subVectors(from, offset);
+    const brb = new THREE.Vector3().subVectors(to, offset);
+    const brf = new THREE.Vector3().addVectors(to, offset);
+
+    const tlf = blf.clone().setY(height);
+    const tlb = blb.clone().setY(height);
+    const trb = brb.clone().setY(height);
+    const trf = brf.clone().setY(height);
+
+    this.addFace(new FaceModel([blf, brf, trf, tlf]));
+    this.addFace(new FaceModel([brb, blb, tlb, trb]));
+    this.addFace(new FaceModel([blb, blf, tlf, tlb]));
+    this.addFace(new FaceModel([brf, brb, trb, trf]));
+    this.addFace(new FaceModel([tlf, tlb, trb, trf]));
+    this.addFace(new FaceModel([blf, brf, brb, blb]));
   }
 }
 
