@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
 import { FloorModel } from './FloorModel';
@@ -29,7 +30,15 @@ export class SceneModel extends BaseModel {
     super(id);
     this._name = name;
     // 默认创建一个楼层
-    this.addChild(new FloorModel(1, 2.8));
+    const floor = new FloorModel(1, 2.8);
+    this.addChild(floor);
+    // 默认创建一堵墙：从 (0,0) 到 (0,1)，宽 0.24，高 2.8
+    floor.addWall(new WallModel(
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, 1),
+      0.24,
+      2.8
+    ));
   }
 
   /**
