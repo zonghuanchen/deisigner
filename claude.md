@@ -6,7 +6,7 @@
 ### 坐标
 
 - src/core: 数据建模用xy面作为地面，即z轴朝上
-- src/app: 3d展示层用three.js的坐标，即y朝上
+- src/app: 3d展示层用three.js的坐标，即y朝上。建模数据超屏幕内旋转90度，就是three.js的坐标
 
 ## dom
 
@@ -23,3 +23,6 @@
 ## 整体结构设计
 
 `core/model`数据层的每个对象都会注册到`ModelRegistry`中，`app/3d/display`下会对每个数据模型注册对应3d展示对象。当数据对象被创建时，`ModelRegistry`就会对应的去创建3d展示对象，并用数据对象的id做对应。
+
+## 3d模型
+为了性能,mesh不要阴影，有明暗和颜色即可

@@ -7,8 +7,8 @@ export class Scene3D {
   private renderTimer: RenderTimer | null = null;
 
   constructor(container: HTMLElement, renderTimer?: RenderTimer) {
-    // Initialize scene using Scene3DManager (now includes camera logic)
-    this.sceneManager = new Scene3DManager();
+    // Initialize scene using Scene3DManager singleton (now includes camera logic)
+    this.sceneManager = Scene3DManager.getInstance();
     
     // Set up renderer container
     this.sceneManager.setRendererContainer(container);

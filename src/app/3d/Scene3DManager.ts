@@ -3,6 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CameraModel, CameraManager, App } from '../../core';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
+import './display/Floor';
+import './display/Wall';
+import './display/Face';
 
 export class Scene3DManager {
   private static instance: Scene3DManager;
@@ -24,6 +27,7 @@ export class Scene3DManager {
 
   constructor() {
     this.scene = new THREE.Scene();
+    (window as any).scene = this.scene;
     this.scene.background = new THREE.Color(0xffffff); // White background
 
     // Initialize camera
@@ -51,14 +55,13 @@ export class Scene3DManager {
     // Add large white ground plane
     const groundGeometry = new THREE.PlaneGeometry(100, 100);
     const groundMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xffffff,
-      roughness: 0.8,
-      metalness: 0.2
+      color: 0xeeeeee,
+      metalness: 0.1,
+      roughness: 1,
     });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.01;
-    ground.receiveShadow = true;
     this.scene.add(ground);
 
     // Add blue skybox with gradient (hemisphere above ground only, matching grid size)
@@ -91,18 +94,18 @@ export class Scene3DManager {
     this.scene.add(sky);
 
     // Add ambient light for better visibility
-    const ambientLight = new THREE.AmbientLight(0x404040, 2);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
     this.scene.add(ambientLight);
 
     // Add directional light to illuminate the ground
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
     directionalLight.position.set(10, 20, 10);
     this.scene.add(directionalLight);
 
     // Setup camera model integration
     this.setupCameraModel();
 
-    // Check if a Scene display object is already registered and add it
+    // Find the Scene display object and add its node to the Three.js scene
     for (const display of DisplayObject3D.getAll()) {
       if (display instanceof Scene) {
         this.scene.add(display.node);

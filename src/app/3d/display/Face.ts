@@ -3,7 +3,7 @@ import { DisplayObject3D } from './DisplayObject3D';
 import { FaceModel } from '../../../core/model/FaceModel';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { FACE_MODEL } from '../../../core/types';
-
+import { toThreeJS } from '../util/archToThreeJS';
 /**
  * 3D display object for a FaceModel.
  * Renders a flat mesh from outer and inner contours using ShapeGeometry.
@@ -14,7 +14,7 @@ export class Face extends DisplayObject3D<FaceModel> {
 
     constructor(model: FaceModel) {
         const material = new THREE.MeshStandardMaterial({
-            color: 0xcccccc,
+            color: 0xdddddd,
             side: THREE.DoubleSide,
         });
         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
@@ -25,8 +25,6 @@ export class Face extends DisplayObject3D<FaceModel> {
         this.mesh = mesh;
         this.material = material;
 
-        this.updateGeometry();
-
         this.model.addEventListener('change', this.onModelChange.bind(this));
     }
 
@@ -36,71 +34,69 @@ export class Face extends DisplayObject3D<FaceModel> {
 
     private updateGeometry(): void {
         const outer = this.model.outerContour;
-        if (outer.length < 3) {
+        const inners = this.model.innerContours;
+        if (!outer || outer.length < 3) {
             this.mesh.visible = false;
             return;
         }
 
-        // Find the first non-collinear triplet to compute the plane normal
-        let normal: THREE.Vector3 | null = null;
-        let u: THREE.Vector3 | null = null;
+        // Transform from architectural coords (XY ground, Z up) to Three.js coords (XZ ground, Y up)
+        const outer3js = outer.map(toThreeJS);
+        const inners3js = inners.map(inner => inner.map(toThreeJS));
 
-        for (let i = 1; i < outer.length - 1; i++) {
-            const e1 = new THREE.Vector3().subVectors(outer[i], outer[0]);
-            const e2 = new THREE.Vector3().subVectors(outer[i + 1], outer[0]);
-            const n = new THREE.Vector3().crossVectors(e1, e2);
-            if (n.lengthSq() > 1e-10) {
-                normal = n.normalize();
-                u = e1.normalize();
-                break;
-            }
-        }
-
-        if (!normal || !u) {
+        // Compute plane normal and local basis from 3D vertices
+        const normal = this.computeNormal(outer3js);
+        if (!normal) {
             this.mesh.visible = false;
             return;
         }
 
+        const origin = outer3js[0];
+        const u = new THREE.Vector3().subVectors(outer3js[1], origin).normalize();
         const v = new THREE.Vector3().crossVectors(normal, u).normalize();
-        const origin = outer[0];
 
-        const to2D = (point: THREE.Vector3): [number, number] => {
-            const diff = new THREE.Vector3().subVectors(point, origin);
-            return [diff.dot(u), diff.dot(v)];
+        // Project 3D points onto the local 2D basis
+        const project2D = (p: THREE.Vector3): THREE.Vector2 => {
+            const d = new THREE.Vector3().subVectors(p, origin);
+            return new THREE.Vector2(d.dot(u), d.dot(v));
         };
 
-        // Build outer shape
-        const shape = new THREE.Shape();
-        const outer2D = outer.map(to2D);
-        shape.moveTo(outer2D[0][0], outer2D[0][1]);
-        for (let i = 1; i < outer2D.length; i++) {
-            shape.lineTo(outer2D[i][0], outer2D[i][1]);
+        // Build THREE.Shape from projected outer contour
+        const shape = new THREE.Shape(outer3js.map(project2D));
+
+        // Add inner contours as holes
+        for (const inner of inners3js) {
+            if (inner.length >= 3) {
+                shape.holes.push(new THREE.Path(inner.map(project2D)));
+            }
         }
 
-        // Add inner holes
-        for (const inner of this.model.innerContours) {
-            if (inner.length < 3) continue;
-            const hole = new THREE.Path();
-            const inner2D = inner.map(to2D);
-            hole.moveTo(inner2D[0][0], inner2D[0][1]);
-            for (let i = 1; i < inner2D.length; i++) {
-                hole.lineTo(inner2D[i][0], inner2D[i][1]);
-            }
-            shape.holes.push(hole);
-        }
+        // Create ShapeGeometry in the XY plane
+        const geometry = new THREE.ShapeGeometry(shape);
+        geometry.computeVertexNormals();
+
+        // Align mesh with the target plane
+        const basisMatrix = new THREE.Matrix4();
+        basisMatrix.makeBasis(u, v, normal);
+        this.mesh.position.copy(origin);
+        this.mesh.quaternion.setFromRotationMatrix(basisMatrix);
 
         this.mesh.geometry.dispose();
-        this.mesh.geometry = new THREE.ShapeGeometry(shape);
-
-        // Orient mesh to the face plane
-        const rotationMatrix = new THREE.Matrix4();
-        rotationMatrix.makeBasis(u, v, normal);
-        const quaternion = new THREE.Quaternion();
-        quaternion.setFromRotationMatrix(rotationMatrix);
-        this.mesh.quaternion.copy(quaternion);
-        this.mesh.position.copy(origin);
-
+        this.mesh.geometry = geometry;
+        this.mesh.geometry.computeBoundingSphere();
         this.mesh.visible = true;
+    }
+
+    private computeNormal(points: THREE.Vector3[]): THREE.Vector3 | null {
+        for (let i = 2; i < points.length; i++) {
+            const a = new THREE.Vector3().subVectors(points[1], points[0]);
+            const b = new THREE.Vector3().subVectors(points[i], points[0]);
+            const n = new THREE.Vector3().crossVectors(a, b);
+            if (n.lengthSq() > 1e-10) {
+                return n.normalize();
+            }
+        }
+        return null;
     }
 
     /**

@@ -34,8 +34,8 @@ export class SceneModel extends BaseModel {
     this.addChild(floor);
     // 默认创建一堵墙：从 (0,0) 到 (0,1)，宽 0.24，高 2.8
     floor.addWall(new WallModel(
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector2(0, 0),
+      new THREE.Vector2(0, 10),
       0.24,
       2.8
     ));

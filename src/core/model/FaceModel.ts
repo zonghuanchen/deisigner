@@ -16,8 +16,8 @@ export interface FaceEventMap {
 }
 
 export class FaceModel extends BaseModel {
-  private _outerContour: THREE.Vector3[];
-  private _innerContours: THREE.Vector3[][];
+  private _outerContour: THREE.Vector3[] =[];
+  private _innerContours: THREE.Vector3[][] = [];
   private _material: Material;
 
   constructor(
@@ -32,6 +32,7 @@ export class FaceModel extends BaseModel {
       contour.map(point => point.clone())
     );
     this._material = material;
+    this.dirty();
   }
 
   get outerContour(): THREE.Vector3[] {

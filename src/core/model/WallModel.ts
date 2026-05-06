@@ -4,6 +4,8 @@ import { FaceModel } from './FaceModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { WALL_MODEL } from '../types';
 
+export type WallFacePosition = 'left' | 'right' | 'top' | 'bottom' | 'front' | 'back';
+
 export interface WallChangeEvent {
   type: 'change';
   wall: WallModel;
@@ -20,14 +22,15 @@ export interface WallEventMap {
  * Defined by a start point (from), end point (to), width (thickness), and height.
  */
 export class WallModel extends BaseModel {
-  private _from: THREE.Vector3;
-  private _to: THREE.Vector3;
+  private _from: THREE.Vector2;
+  private _to: THREE.Vector2;
   private _width: number;
   private _height: number;
+  private _faces: Map<WallFacePosition, FaceModel> = new Map();
 
   constructor(
-    from: THREE.Vector3 = new THREE.Vector3(),
-    to: THREE.Vector3 = new THREE.Vector3(),
+    from: THREE.Vector2 = new THREE.Vector2(),
+    to: THREE.Vector2 = new THREE.Vector2(),
     width: number = 0.2,
     height: number = 2.8,
     id?: string
@@ -43,14 +46,14 @@ export class WallModel extends BaseModel {
   /**
    * Gets the start point of the wall
    */
-  get from(): THREE.Vector3 {
+  get from(): THREE.Vector2 {
     return this._from;
   }
 
   /**
    * Sets the start point of the wall
    */
-  set from(value: THREE.Vector3) {
+  set from(value: THREE.Vector2) {
     if (!this._from.equals(value)) {
       this._from.copy(value);
       this.dirty();
@@ -60,14 +63,14 @@ export class WallModel extends BaseModel {
   /**
    * Gets the end point of the wall
    */
-  get to(): THREE.Vector3 {
+  get to(): THREE.Vector2 {
     return this._to;
   }
 
   /**
    * Sets the end point of the wall
    */
-  set to(value: THREE.Vector3) {
+  set to(value: THREE.Vector2) {
     if (!this._to.equals(value)) {
       this._to.copy(value);
       this.dirty();
@@ -112,21 +115,56 @@ export class WallModel extends BaseModel {
    * Gets all face models that make up this wall
    */
   get faces(): FaceModel[] {
-    return this._children.filter(child => child instanceof FaceModel) as FaceModel[];
+    return Array.from(this._faces.values());
   }
 
   /**
-   * Adds a face to the wall
+   * Gets a face by its position
    */
-  addFace(face: FaceModel): void {
-    this.addChild(face);
+  getFace(position: WallFacePosition): FaceModel | undefined {
+    return this._faces.get(position);
   }
 
   /**
-   * Removes a face from the wall by instance or id
+   * Gets the left face of the wall
    */
-  removeFace(face: FaceModel | string): void {
-    this.removeChild(face);
+  get leftFace(): FaceModel | undefined {
+    return this._faces.get('left');
+  }
+
+  /**
+   * Gets the right face of the wall
+   */
+  get rightFace(): FaceModel | undefined {
+    return this._faces.get('right');
+  }
+
+  /**
+   * Gets the top face of the wall
+   */
+  get topFace(): FaceModel | undefined {
+    return this._faces.get('top');
+  }
+
+  /**
+   * Gets the bottom face of the wall
+   */
+  get bottomFace(): FaceModel | undefined {
+    return this._faces.get('bottom');
+  }
+
+  /**
+   * Gets the front face of the wall
+   */
+  get frontFace(): FaceModel | undefined {
+    return this._faces.get('front');
+  }
+
+  /**
+   * Gets the back face of the wall
+   */
+  get backFace(): FaceModel | undefined {
+    return this._faces.get('back');
   }
 
   /**
@@ -139,42 +177,58 @@ export class WallModel extends BaseModel {
   }
 
   private updateFaces(): void {
-    for (const face of [...this.faces]) {
-      this.removeFace(face);
-    }
-
     const from = this._from;
     const to = this._to;
     const halfWidth = this._width / 2;
     const height = this._height;
 
-    const direction = new THREE.Vector3().subVectors(to, from);
+    const direction = new THREE.Vector2().subVectors(to, from);
     const length = direction.length();
 
     if (length === 0 || height === 0 || this._width === 0) {
+      // Clear faces if wall has no valid dimensions
+      for (const [position, face] of this._faces) {
+        this.removeChild(face);
+      }
+      this._faces.clear();
       return;
     }
 
     const dir = direction.clone().normalize();
-    const perp = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+    const perp = new THREE.Vector2(-dir.y, dir.x);
     const offset = perp.clone().multiplyScalar(halfWidth);
 
-    const blf = new THREE.Vector3().addVectors(from, offset);
-    const blb = new THREE.Vector3().subVectors(from, offset);
-    const brb = new THREE.Vector3().subVectors(to, offset);
-    const brf = new THREE.Vector3().addVectors(to, offset);
+    // Bottom vertices (z = 0)
+    const blf = new THREE.Vector3(from.x + offset.x, from.y + offset.y, 0);
+    const blb = new THREE.Vector3(from.x - offset.x, from.y - offset.y, 0);
+    const brb = new THREE.Vector3(to.x - offset.x, to.y - offset.y, 0);
+    const brf = new THREE.Vector3(to.x + offset.x, to.y + offset.y, 0);
 
-    const tlf = blf.clone().setY(height);
-    const tlb = blb.clone().setY(height);
-    const trb = brb.clone().setY(height);
-    const trf = brf.clone().setY(height);
+    // Top vertices (z = height)
+    const tlf = new THREE.Vector3(from.x + offset.x, from.y + offset.y, height);
+    const tlb = new THREE.Vector3(from.x - offset.x, from.y - offset.y, height);
+    const trb = new THREE.Vector3(to.x - offset.x, to.y - offset.y, height);
+    const trf = new THREE.Vector3(to.x + offset.x, to.y + offset.y, height);
 
-    this.addFace(new FaceModel([blf, brf, trf, tlf]));
-    this.addFace(new FaceModel([brb, blb, tlb, trb]));
-    this.addFace(new FaceModel([blb, blf, tlf, tlb]));
-    this.addFace(new FaceModel([brf, brb, trb, trf]));
-    this.addFace(new FaceModel([tlf, tlb, trb, trf]));
-    this.addFace(new FaceModel([blf, brf, brb, blb]));
+    const faceConfigs: { position: WallFacePosition; vertices: THREE.Vector3[] }[] = [
+      { position: 'left',   vertices: [blf, brf, trf, tlf] },
+      { position: 'right',  vertices: [brb, blb, tlb, trb] },
+      { position: 'front',  vertices: [blb, blf, tlf, tlb] },
+      { position: 'back',   vertices: [brf, brb, trb, trf] },
+      { position: 'top',    vertices: [tlf, tlb, trb, trf] },
+      { position: 'bottom', vertices: [blf, brf, brb, blb] },
+    ];
+
+    for (const config of faceConfigs) {
+      let face = this._faces.get(config.position);
+      if (face) {
+        face.outerContour = config.vertices;
+      } else {
+        face = new FaceModel(config.vertices);
+        this._faces.set(config.position, face);
+        this.addChild(face);
+      }
+    }
   }
 }
 
