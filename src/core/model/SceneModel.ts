@@ -43,7 +43,7 @@ export class SceneModel extends BaseModel {
         );
         wall.addHole({
             id: 'window-01',
-            position: 10,
+            position: 5,
             width: 1.5,
             height: 1.5,
             sillHeight: 0.9,
@@ -57,16 +57,41 @@ export class SceneModel extends BaseModel {
         );
         wall2.addHole({
             id: 'window-01',
-            position: 0,
+            position: 5,
             width: 1.5,
-            height: 1.5,
-            sillHeight: 0.9,
+            height: 2.3,
+            sillHeight: 0,
         });
         floor.addWall(wall2);
 
         // Link the walls at their junction point (5, 5)
         wall.addLink({ wall: wall2, end: 'to' });
         wall2.addLink({ wall: wall, end: 'from' });
+
+
+        const wall3 = new WallModel(
+            new THREE.Vector2(5, -5),
+            new THREE.Vector2(-5, -5),
+            0.24,
+            2.8
+        );
+        floor.addWall(wall3);
+
+        wall2.addLink({ wall: wall3, end: 'to' });
+        wall3.addLink({ wall: wall2, end: 'from' });
+
+        const wall4 = new WallModel(
+            new THREE.Vector2(-5, -5),
+            new THREE.Vector2(-5, 5),
+            0.24,
+            2.8
+        );
+        floor.addWall(wall4);
+        wall3.addLink({ wall: wall4, end: 'to' });
+        wall4.addLink({ wall: wall3, end: 'from' });
+
+        wall4.addLink({ wall: wall, end: 'to' });
+        wall.addLink({ wall: wall4, end: 'from' });
     }
 
     /**
