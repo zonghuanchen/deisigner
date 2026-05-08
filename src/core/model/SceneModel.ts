@@ -32,6 +32,8 @@ export class SceneModel extends BaseModel {
         // 默认创建一个楼层
         const floor = new FloorModel(1, 2.8);
         this.addChild(floor);
+
+        // 测试代码
         // 默认创建一堵墙：从 (0,0) 到 (0,10)，宽 0.24，高 2.8
         const wall = new WallModel(
             new THREE.Vector2(-5, 5),
@@ -47,20 +49,24 @@ export class SceneModel extends BaseModel {
             sillHeight: 0.9,
         });
         floor.addWall(wall);
-        // const wall2 = new WallModel(
-        //     new THREE.Vector2(5, 5),
-        //     new THREE.Vector2(5, -5),
-        //     0.24,
-        //     2.8
-        // );
-        // wall2.addHole({
-        //     id: 'window-01',
-        //     position: 5,
-        //     width: 1.5,
-        //     height: 1.5,
-        //     sillHeight: 0.9,
-        // });
-        // floor.addWall(wall2);
+        const wall2 = new WallModel(
+            new THREE.Vector2(5, 5),
+            new THREE.Vector2(5, -5),
+            0.24,
+            2.8
+        );
+        wall2.addHole({
+            id: 'window-01',
+            position: 0,
+            width: 1.5,
+            height: 1.5,
+            sillHeight: 0.9,
+        });
+        floor.addWall(wall2);
+
+        // Link the walls at their junction point (5, 5)
+        wall.addLink({ wall: wall2, end: 'to' });
+        wall2.addLink({ wall: wall, end: 'from' });
     }
 
     /**

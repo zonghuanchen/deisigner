@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { DisplayObject3D } from './DisplayObject3D';
 import { FaceModel } from '../../../core/model/FaceModel';
 import { ModelRegistry } from '../../../core/ModelRegistry';
@@ -6,11 +7,14 @@ import { FACE_MODEL } from '../../../core/types';
 import { toThreeJS } from '../util/archToThreeJS';
 /**
  * 3D display object for a FaceModel.
- * Renders a flat mesh from outer and inner contours using ShapeGeometry.
+ * Renders a flat mesh from outer and inner contours using CSG subtraction
+ * via three-bvh-csg when holes are present; falls back to ShapeGeometry
+ * for a solid face without holes.
  */
 export class Face extends DisplayObject3D<FaceModel> {
     private mesh: THREE.Mesh;
     private material: THREE.MeshStandardMaterial;
+    private static evaluator = new Evaluator();
 
     constructor(model: FaceModel) {
         const material = new THREE.MeshStandardMaterial({
@@ -64,16 +68,38 @@ export class Face extends DisplayObject3D<FaceModel> {
         // Build THREE.Shape from projected outer contour
         const shape = new THREE.Shape(outer3js.map(project2D));
 
-        // Add inner contours as holes
-        for (const inner of inners3js) {
-            if (inner.length >= 3) {
-                shape.holes.push(new THREE.Path(inner.map(project2D)));
-            }
-        }
+        let geometry: THREE.BufferGeometry;
 
-        // Create ShapeGeometry in the XY plane
-        const geometry = new THREE.ShapeGeometry(shape);
-        geometry.computeVertexNormals();
+        if (inners3js.length === 0) {
+            // Fast path: no holes, use simple ShapeGeometry
+            geometry = new THREE.ShapeGeometry(shape);
+            geometry.computeVertexNormals();
+        } else {
+            // CSG path: use three-bvh-csg to subtract holes from a thin plate
+            const depth = 0.001;
+            const extrudeSettings: THREE.ExtrudeGeometryOptions = {
+                depth,
+                bevelEnabled: false,
+            };
+
+            const outerGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            outerGeometry.translate(0, 0, -depth / 2);
+
+            let resultBrush = new Brush(outerGeometry, this.material);
+
+            for (const inner of inners3js) {
+                if (inner.length >= 3) {
+                    const holeShape = new THREE.Shape(inner.map(project2D));
+                    const holeGeometry = new THREE.ExtrudeGeometry(holeShape, extrudeSettings);
+                    holeGeometry.translate(0, 0, -depth / 2);
+                    const holeBrush = new Brush(holeGeometry, this.material);
+                    resultBrush = Face.evaluator.evaluate(resultBrush, holeBrush, SUBTRACTION);
+                }
+            }
+
+            geometry = resultBrush.geometry;
+            geometry.computeVertexNormals();
+        }
 
         // Align mesh with the target plane
         const basisMatrix = new THREE.Matrix4();

@@ -28,6 +28,14 @@ export interface WallChangeEvent {
 
 export type WallChangeListener = (event: WallChangeEvent) => void;
 
+/**
+ * Represents a link to an adjacent wall connection.
+ */
+export interface WallLink {
+    wall: WallModel;
+    end: 'from' | 'to';
+}
+
 export interface WallEventMap {
     change: WallChangeEvent;
 }
@@ -44,6 +52,8 @@ export class WallModel extends BaseModel {
     private _faces: Map<WallFacePosition, FaceModel> = new Map();
     private _holes: WallHole[] = [];
     private _holeRevealFaces: FaceModel[] = [];
+    private _links: WallLink[] = [];
+    private _miterEndCaps: FaceModel[] = [];
 
     constructor(
         from: THREE.Vector2 = new THREE.Vector2(),
@@ -243,11 +253,60 @@ export class WallModel extends BaseModel {
     }
 
     /**
+      * Gets all linked walls
+      */
+    get links(): WallLink[] {
+        return [...this._links];
+    }
+
+    /**
+      * Links this wall to an adjacent wall at a specific end
+      */
+    addLink(link: WallLink): void {
+        const existing = this._links.find(
+            l => l.wall.id === link.wall.id && l.end === link.end
+        );
+        if (existing) {
+            console.warn(`Link to wall '${link.wall.id}' at '${link.end}' already exists.`);
+            return;
+        }
+        this._links.push({ ...link });
+        this.dirty();
+    }
+
+    /**
+      * Removes a link to an adjacent wall
+      */
+    removeLink(wallId: string, end: 'from' | 'to'): void {
+        const index = this._links.findIndex(
+            l => l.wall.id === wallId && l.end === end
+        );
+        if (index === -1) {
+            console.warn(`Link to wall '${wallId}' at '${end}' not found.`);
+            return;
+        }
+        this._links.splice(index, 1);
+        this.dirty();
+    }
+
+    /**
+      * Clears all links from this wall
+      */
+    clearLinks(): void {
+        if (this._links.length > 0) {
+            this._links = [];
+            this.dirty();
+        }
+    }
+
+    /**
       * Triggers a change event to notify listeners that the wall has been modified
       */
     dirty(): void {
         this._isDirty = true;
+        this.clearMiterEndCaps();
         this.updateFaces();
+        this.updateMiterJoints();
         this.dispatchEvent({ type: 'change', wall: this });
     }
 
@@ -301,9 +360,6 @@ export class WallModel extends BaseModel {
         const topFaceHoles: THREE.Vector3[][] = [];
         const bottomFaceHoles: THREE.Vector3[][] = [];
 
-        const epsilon = 1e-4;
-        const thicknessShrink = Math.max(0, 1 - epsilon / halfWidth);
-
         for (const hole of this._holes) {
             const bounds = this.clampHoleBounds(hole, wallLength);
             if (!bounds) continue;
@@ -313,62 +369,55 @@ export class WallModel extends BaseModel {
             const rawBottom = hole.sillHeight;
             const rawTop = hole.sillHeight + hole.height;
 
-            // Shrink bounds slightly so inner contours never touch outer contours
-            const capBottomZ = Math.max(epsilon, Math.min(this._height - epsilon, bounds.bottomZ));
-            const capTopZ = Math.max(epsilon, Math.min(this._height - epsilon, bounds.topZ));
-
             // Front end cap hole (at from-end)
-            if (rawLeft <= 0 && capTopZ > capBottomZ) {
+            if (rawLeft <= 0 && bounds.topZ > bounds.bottomZ) {
                 frontCapHoles.push([
-                    new THREE.Vector3(from.x - offset.x * thicknessShrink, from.y - offset.y * thicknessShrink, capBottomZ),
-                    new THREE.Vector3(from.x - offset.x * thicknessShrink, from.y - offset.y * thicknessShrink, capTopZ),
-                    new THREE.Vector3(from.x + offset.x * thicknessShrink, from.y + offset.y * thicknessShrink, capTopZ),
-                    new THREE.Vector3(from.x + offset.x * thicknessShrink, from.y + offset.y * thicknessShrink, capBottomZ),
+                    new THREE.Vector3(from.x - offset.x, from.y - offset.y, bounds.bottomZ),
+                    new THREE.Vector3(from.x - offset.x, from.y - offset.y, bounds.topZ),
+                    new THREE.Vector3(from.x + offset.x, from.y + offset.y, bounds.topZ),
+                    new THREE.Vector3(from.x + offset.x, from.y + offset.y, bounds.bottomZ),
                 ]);
             }
 
             // Back end cap hole (at to-end)
-            if (rawRight >= wallLength && capTopZ > capBottomZ) {
+            if (rawRight >= wallLength && bounds.topZ > bounds.bottomZ) {
                 backCapHoles.push([
-                    new THREE.Vector3(to.x + offset.x * thicknessShrink, to.y + offset.y * thicknessShrink, capBottomZ),
-                    new THREE.Vector3(to.x + offset.x * thicknessShrink, to.y + offset.y * thicknessShrink, capTopZ),
-                    new THREE.Vector3(to.x - offset.x * thicknessShrink, to.y - offset.y * thicknessShrink, capTopZ),
-                    new THREE.Vector3(to.x - offset.x * thicknessShrink, to.y - offset.y * thicknessShrink, capBottomZ),
+                    new THREE.Vector3(to.x + offset.x, to.y + offset.y, bounds.bottomZ),
+                    new THREE.Vector3(to.x + offset.x, to.y + offset.y, bounds.topZ),
+                    new THREE.Vector3(to.x - offset.x, to.y - offset.y, bounds.topZ),
+                    new THREE.Vector3(to.x - offset.x, to.y - offset.y, bounds.bottomZ),
                 ]);
             }
 
-            const topBottomLeft = Math.max(epsilon, Math.min(wallLength - epsilon, bounds.leftDist));
-            const topBottomRight = Math.max(epsilon, Math.min(wallLength - epsilon, bounds.rightDist));
-
             // Bottom face hole
-            if (rawBottom <= 0 && topBottomRight > topBottomLeft) {
+            if (rawBottom <= 0 && bounds.rightDist > bounds.leftDist) {
                 const pLeft = new THREE.Vector2().copy(from).add(
-                    new THREE.Vector2().copy(dir).multiplyScalar(topBottomLeft)
+                    new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
                 );
                 const pRight = new THREE.Vector2().copy(from).add(
-                    new THREE.Vector2().copy(dir).multiplyScalar(topBottomRight)
+                    new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
                 );
                 bottomFaceHoles.push([
-                    new THREE.Vector3(pLeft.x + offset.x * thicknessShrink, pLeft.y + offset.y * thicknessShrink, 0),
-                    new THREE.Vector3(pLeft.x - offset.x * thicknessShrink, pLeft.y - offset.y * thicknessShrink, 0),
-                    new THREE.Vector3(pRight.x - offset.x * thicknessShrink, pRight.y - offset.y * thicknessShrink, 0),
-                    new THREE.Vector3(pRight.x + offset.x * thicknessShrink, pRight.y + offset.y * thicknessShrink, 0),
+                    new THREE.Vector3(pLeft.x + offset.x, pLeft.y + offset.y, 0),
+                    new THREE.Vector3(pLeft.x - offset.x, pLeft.y - offset.y, 0),
+                    new THREE.Vector3(pRight.x - offset.x, pRight.y - offset.y, 0),
+                    new THREE.Vector3(pRight.x + offset.x, pRight.y + offset.y, 0),
                 ]);
             }
 
             // Top face hole
-            if (rawTop >= height && topBottomRight > topBottomLeft) {
+            if (rawTop >= height && bounds.rightDist > bounds.leftDist) {
                 const pLeft = new THREE.Vector2().copy(from).add(
-                    new THREE.Vector2().copy(dir).multiplyScalar(topBottomLeft)
+                    new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
                 );
                 const pRight = new THREE.Vector2().copy(from).add(
-                    new THREE.Vector2().copy(dir).multiplyScalar(topBottomRight)
+                    new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
                 );
                 topFaceHoles.push([
-                    new THREE.Vector3(pLeft.x + offset.x * thicknessShrink, pLeft.y + offset.y * thicknessShrink, height),
-                    new THREE.Vector3(pRight.x + offset.x * thicknessShrink, pRight.y + offset.y * thicknessShrink, height),
-                    new THREE.Vector3(pRight.x - offset.x * thicknessShrink, pRight.y - offset.y * thicknessShrink, height),
-                    new THREE.Vector3(pLeft.x - offset.x * thicknessShrink, pLeft.y - offset.y * thicknessShrink, height),
+                    new THREE.Vector3(pLeft.x + offset.x, pLeft.y + offset.y, height),
+                    new THREE.Vector3(pRight.x + offset.x, pRight.y + offset.y, height),
+                    new THREE.Vector3(pRight.x - offset.x, pRight.y - offset.y, height),
+                    new THREE.Vector3(pLeft.x - offset.x, pLeft.y - offset.y, height),
                 ]);
             }
         }
@@ -396,6 +445,303 @@ export class WallModel extends BaseModel {
 
         // Update hole reveal faces (the sides of each opening)
         this.updateHoleRevealFaces(dir, offset);
+    }
+
+    /**
+      * Clears all miter end cap faces.
+      */
+    private clearMiterEndCaps(): void {
+        for (const face of this._miterEndCaps) {
+            this.removeChild(face);
+        }
+        this._miterEndCaps = [];
+    }
+
+    /**
+      * Updates miter joint geometry at wall connections.
+      * Computes miter line intersections with wall edge lines, updates
+      * left/right/top/bottom face vertices at the linked end, removes
+      * the corresponding end cap face, and creates a miter face that
+      * perfectly closes the joint.
+      */
+    private updateMiterJoints(): void {
+        const from = this._from;
+        const to = this._to;
+        const halfWidth = this._width / 2;
+        const height = this._height;
+
+        const direction = new THREE.Vector2().subVectors(to, from);
+        const length = direction.length();
+        if (length === 0) return;
+
+        const dir = direction.clone().normalize();
+        const perp = new THREE.Vector2(-dir.y, dir.x);
+        const offset = perp.clone().multiplyScalar(halfWidth);
+
+        for (const link of this._links) {
+            const otherWall = link.wall;
+            const otherFrom = otherWall.from;
+            const otherTo = otherWall.to;
+
+            const otherDir = new THREE.Vector2().subVectors(otherTo, otherFrom).normalize();
+
+            const isAtFromEnd = link.end === 'from';
+            const jointPoint = isAtFromEnd ? from : to;
+
+            // Determine which end of the other wall connects to this joint
+            const tolerance = 0.01;
+            let otherEndDir: THREE.Vector2;
+
+            if (otherFrom.distanceTo(jointPoint) < tolerance) {
+                otherEndDir = otherDir.clone();
+            } else if (otherTo.distanceTo(jointPoint) < tolerance) {
+                otherEndDir = otherDir.clone().negate();
+            } else {
+                continue;
+            }
+
+            // Calculate the bisector direction for the miter angle
+            const myDir = isAtFromEnd ? dir.clone().negate() : dir.clone();
+            const bisectorVec = new THREE.Vector2().addVectors(myDir, otherEndDir);
+            if (bisectorVec.lengthSq() < 1e-10) continue;
+            const bisector = bisectorVec.normalize();
+            const miterPerp = new THREE.Vector2(-bisector.y, bisector.x);
+
+            // Find intersections of miter line with the wall's +offset and -offset edge lines
+            const frontIntersect = this.findMiterEdgeIntersection(
+                dir, offset, jointPoint, miterPerp, true
+            );
+            const backIntersect = this.findMiterEdgeIntersection(
+                dir, offset, jointPoint, miterPerp, false
+            );
+
+            if (!frontIntersect || !backIntersect) continue;
+
+            // Update left/right/top/bottom face vertices at the linked end
+            this.updateFacesAtMiterEnd(isAtFromEnd, frontIntersect, backIntersect, height);
+
+            // Remove the end cap face at the linked end
+            const endCapPosition = isAtFromEnd ? 'front' : 'back';
+            const endCapFace = this._faces.get(endCapPosition);
+            if (endCapFace) {
+                this.removeChild(endCapFace);
+                this._faces.delete(endCapPosition);
+            }
+
+            // Compute hole contours that extend to the miter-linked end
+            const miterHoleContours = this.computeMiterHoleContours(
+                isAtFromEnd, miterPerp, dir, perp
+            );
+
+            // Create miter face using the intersection points
+            const p1 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, 0);
+            const p2 = new THREE.Vector3(backIntersect.x, backIntersect.y, 0);
+            const p3 = new THREE.Vector3(backIntersect.x, backIntersect.y, height);
+            const p4 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, height);
+
+            const miterFace = new FaceModel([p1, p2, p3, p4], miterHoleContours);
+            this._miterEndCaps.push(miterFace);
+            this.addChild(miterFace);
+        }
+    }
+
+    /**
+      * Finds the intersection of the miter line with one of the wall's edge lines.
+      * @param dir - Normalized wall direction
+      * @param offset - Perpendicular offset vector (half thickness)
+      * @param jointPoint - The junction point
+      * @param miterPerp - Perpendicular to the miter bisector
+      * @param isFrontSide - true for +offset side, false for -offset side
+      */
+    private findMiterEdgeIntersection(
+        dir: THREE.Vector2,
+        offset: THREE.Vector2,
+        jointPoint: THREE.Vector2,
+        miterPerp: THREE.Vector2,
+        isFrontSide: boolean
+    ): THREE.Vector2 | null {
+        const sign = isFrontSide ? 1 : -1;
+        const edgeOrigin = new THREE.Vector2().copy(this._from).addScaledVector(offset, sign);
+
+        const dx = edgeOrigin.x - jointPoint.x;
+        const dy = edgeOrigin.y - jointPoint.y;
+        const denom = dir.x * miterPerp.y - dir.y * miterPerp.x;
+
+        if (Math.abs(denom) < 1e-10) return null;
+
+        const t = -(dx * miterPerp.y - dy * miterPerp.x) / denom;
+
+        return new THREE.Vector2(
+            edgeOrigin.x + t * dir.x,
+            edgeOrigin.y + t * dir.y
+        );
+    }
+
+    /**
+      * Updates left/right/top/bottom face vertices at the miter-linked end.
+      */
+    private updateFacesAtMiterEnd(
+        isAtFromEnd: boolean,
+        frontIntersect: THREE.Vector2,
+        backIntersect: THREE.Vector2,
+        height: number
+    ): void {
+        const fi = frontIntersect;
+        const bi = backIntersect;
+
+        // left face (+offset side): [blf, brf, trf, tlf]
+        const leftFace = this._faces.get('left');
+        if (leftFace) {
+            const verts = leftFace.outerContour;
+            if (isAtFromEnd) {
+                verts[0] = new THREE.Vector3(fi.x, fi.y, 0);
+                verts[3] = new THREE.Vector3(fi.x, fi.y, height);
+            } else {
+                verts[1] = new THREE.Vector3(fi.x, fi.y, 0);
+                verts[2] = new THREE.Vector3(fi.x, fi.y, height);
+            }
+            leftFace.outerContour = verts;
+        }
+
+        // right face (-offset side): [brb, blb, tlb, trb]
+        const rightFace = this._faces.get('right');
+        if (rightFace) {
+            const verts = rightFace.outerContour;
+            if (isAtFromEnd) {
+                verts[1] = new THREE.Vector3(bi.x, bi.y, 0);
+                verts[2] = new THREE.Vector3(bi.x, bi.y, height);
+            } else {
+                verts[0] = new THREE.Vector3(bi.x, bi.y, 0);
+                verts[3] = new THREE.Vector3(bi.x, bi.y, height);
+            }
+            rightFace.outerContour = verts;
+        }
+
+        // top face: [tlf, tlb, trb, trf]
+        const topFace = this._faces.get('top');
+        if (topFace) {
+            const verts = topFace.outerContour;
+            if (isAtFromEnd) {
+                verts[0] = new THREE.Vector3(fi.x, fi.y, height);
+                verts[1] = new THREE.Vector3(bi.x, bi.y, height);
+            } else {
+                verts[2] = new THREE.Vector3(bi.x, bi.y, height);
+                verts[3] = new THREE.Vector3(fi.x, fi.y, height);
+            }
+            topFace.outerContour = verts;
+        }
+
+        // bottom face: [blf, brf, brb, blb]
+        const bottomFace = this._faces.get('bottom');
+        if (bottomFace) {
+            const verts = bottomFace.outerContour;
+            if (isAtFromEnd) {
+                verts[0] = new THREE.Vector3(fi.x, fi.y, 0);
+                verts[3] = new THREE.Vector3(bi.x, bi.y, 0);
+            } else {
+                verts[1] = new THREE.Vector3(fi.x, fi.y, 0);
+                verts[2] = new THREE.Vector3(bi.x, bi.y, 0);
+            }
+            bottomFace.outerContour = verts;
+        }
+    }
+
+    /**
+      * Computes hole contours on the miter face for holes that extend
+      * to the linked end of the wall.
+      * @param isAtFromEnd - Whether the link is at the from-end
+      * @param miterPerp - Perpendicular to the miter bisector
+      * @param dir - Normalized wall direction
+      * @param perp - Perpendicular to wall direction
+      * @returns Array of hole contours on the miter face
+      */
+    private computeMiterHoleContours(
+        isAtFromEnd: boolean,
+        miterPerp: THREE.Vector2,
+        dir: THREE.Vector2,
+        perp: THREE.Vector2
+    ): THREE.Vector3[][] {
+        const contours: THREE.Vector3[][] = [];
+        const wallLength = this._from.distanceTo(this._to);
+        const halfW = this._width / 2;
+
+        // Convert miterPerp to wall-local coordinates
+        const miterPerpLocal = new THREE.Vector2(
+            miterPerp.dot(dir),
+            miterPerp.dot(perp)
+        );
+
+        for (const hole of this._holes) {
+            const bounds = this.clampHoleBounds(hole, wallLength);
+            if (!bounds) continue;
+
+            const rawLeft = hole.position - hole.width / 2;
+            const rawRight = hole.position + hole.width / 2;
+
+            const extendsToEnd = isAtFromEnd ? (rawLeft <= 0) : (rawRight >= wallLength);
+            if (!extendsToEnd) continue;
+
+            // Hole rectangle in wall-local coordinates (x along dir, y along perp)
+            const holeNearX = isAtFromEnd ? bounds.rightDist : bounds.leftDist;
+            const holeFarX = isAtFromEnd ? 0 : wallLength;
+            const holeYMin = -halfW;
+            const holeYMax = halfW;
+
+            // Miter line in local coords: P = (holeFarX, 0) + t * miterPerpLocal
+            const tValues: number[] = [0];
+
+            // Intersection with the holeNearX boundary
+            if (Math.abs(miterPerpLocal.x) > 1e-10) {
+                const t = (holeNearX - holeFarX) / miterPerpLocal.x;
+                const y = t * miterPerpLocal.y;
+                if (y >= holeYMin && y <= holeYMax) {
+                    tValues.push(t);
+                }
+            }
+
+            // Intersection with the y = ±halfW boundaries
+            if (Math.abs(miterPerpLocal.y) > 1e-10) {
+                const t1 = halfW / miterPerpLocal.y;
+                const x1 = holeFarX + t1 * miterPerpLocal.x;
+                if (
+                    isAtFromEnd
+                        ? (x1 <= holeNearX && x1 >= holeFarX)
+                        : (x1 >= holeNearX && x1 <= holeFarX)
+                ) {
+                    tValues.push(t1);
+                }
+
+                const t2 = -halfW / miterPerpLocal.y;
+                const x2 = holeFarX + t2 * miterPerpLocal.x;
+                if (
+                    isAtFromEnd
+                        ? (x2 <= holeNearX && x2 >= holeFarX)
+                        : (x2 >= holeNearX && x2 <= holeFarX)
+                ) {
+                    tValues.push(t2);
+                }
+            }
+
+            if (tValues.length < 2) continue;
+
+            const tMin = Math.min(...tValues);
+            const tMax = Math.max(...tValues);
+
+            // Convert local intersection points to global coordinates
+            const jointPoint = isAtFromEnd ? this._from : this._to;
+            const pEnter = new THREE.Vector2().copy(jointPoint).addScaledVector(miterPerp, tMin);
+            const pExit = new THREE.Vector2().copy(jointPoint).addScaledVector(miterPerp, tMax);
+
+            // Wound opposite to outer contour for CSG subtraction
+            contours.push([
+                new THREE.Vector3(pEnter.x, pEnter.y, bounds.bottomZ),
+                new THREE.Vector3(pExit.x, pExit.y, bounds.bottomZ),
+                new THREE.Vector3(pExit.x, pExit.y, bounds.topZ),
+                new THREE.Vector3(pEnter.x, pEnter.y, bounds.topZ),
+            ]);
+        }
+
+        return contours;
     }
 
     /**
@@ -497,8 +843,7 @@ export class WallModel extends BaseModel {
 
     /**
       * Computes 3D hole contours for the front or back face of the wall.
-      * Holes are clamped to the wall bounds and shrunk by a small epsilon
-      * to avoid touching the outer contour, which prevents triangulation errors.
+      * Holes are clamped to the wall bounds.
       * @param dir - Normalized wall direction vector
       * @param offset - Perpendicular offset vector (half thickness)
       * @param isBack - Whether to compute for the back face (uses -offset)
@@ -512,31 +857,23 @@ export class WallModel extends BaseModel {
         const faceOffset = isBack ? offset.clone().negate() : offset;
         const contours: THREE.Vector3[][] = [];
         const wallLength = this._from.distanceTo(this._to);
-        const epsilon = 1e-4;
-
         for (const hole of this._holes) {
             const bounds = this.clampHoleBounds(hole, wallLength);
             if (!bounds) continue;
 
-            // Shrink hole slightly so it never touches the outer contour
-            const leftDist = Math.max(epsilon, Math.min(wallLength - epsilon, bounds.leftDist));
-            const rightDist = Math.max(epsilon, Math.min(wallLength - epsilon, bounds.rightDist));
-            const bottomZ = Math.max(epsilon, Math.min(this._height - epsilon, bounds.bottomZ));
-            const topZ = Math.max(epsilon, Math.min(this._height - epsilon, bounds.topZ));
-
-            if (rightDist <= leftDist || topZ <= bottomZ) continue;
+            if (bounds.rightDist <= bounds.leftDist || bounds.topZ <= bounds.bottomZ) continue;
 
             const pLeft = new THREE.Vector2().copy(this._from).add(
-                new THREE.Vector2().copy(dir).multiplyScalar(leftDist)
+                new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
             );
             const pRight = new THREE.Vector2().copy(this._from).add(
-                new THREE.Vector2().copy(dir).multiplyScalar(rightDist)
+                new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
             );
 
-            const bl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bottomZ);
-            const br = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bottomZ);
-            const tr = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, topZ);
-            const tl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, topZ);
+            const bl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.bottomZ);
+            const br = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.bottomZ);
+            const tr = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.topZ);
+            const tl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.topZ);
 
             // Hole wound opposite to outer face for proper CSG behavior
             if (isBack) {
