@@ -3,6 +3,7 @@ import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
 import { FloorModel } from './FloorModel';
 import { RoomModel } from './RoomModel';
+import { FurnitureModel } from './FurnitureModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { SCENE_MODEL } from '../types';
 import { RoomBuilder } from '../util';
@@ -99,6 +100,65 @@ export class SceneModel extends BaseModel {
         for (const room of rooms) {
             this.addRoom(room);
         }
+
+        // Defer furniture creation to avoid triggering display object creation during construction
+        // This prevents infinite loop issues when ModelRegistry creates display objects
+        Promise.resolve().then(() => {
+            // Iterate through all walls and place furniture at each hole
+            for (const wall of floor.walls) {
+                const holes = wall.holes;
+                if (holes.length === 0) continue;
+
+                // Calculate wall direction and offset
+                const from = wall.from;
+                const to = wall.to;
+                const direction = new THREE.Vector2().subVectors(to, from);
+                const wallLength = direction.length();
+                if (wallLength === 0) continue;
+
+                const dir = direction.clone().normalize();
+                const perp = new THREE.Vector2(-dir.y, dir.x);
+                const halfWidth = wall.width / 2;
+                const offset = perp.clone().multiplyScalar(halfWidth);
+
+                // Place furniture at each hole
+                for (const hole of holes) {
+                    // Calculate hole center position along the wall
+                    const holeCenterDist = hole.position;
+                    const holeCenter2D = new THREE.Vector2().copy(from).add(
+                        new THREE.Vector2().copy(dir).multiplyScalar(holeCenterDist)
+                    );
+
+                    // Calculate the 3D position at the bottom center of the hole's front face
+                    const holeCenterZ = hole.sillHeight;
+                    const position3D = new THREE.Vector3(
+                        holeCenter2D.x + offset.x,
+                        holeCenter2D.y + offset.y,
+                        holeCenterZ
+                    );
+
+                    // Calculate rotation to align furniture with wall direction
+                    const wallAngle = Math.atan2(dir.y, dir.x);
+                    const rotation = new THREE.Euler(0, 0, wallAngle);
+                    
+                    // Scale furniture to match hole dimensions
+                    const scale = new THREE.Vector3(
+                        hole.width,
+                        hole.height,
+                        1
+                    );
+                    
+                    const furniture = new FurnitureModel(
+                        '/assets/door-model.glb',
+                        position3D,
+                        rotation,
+                        scale
+                    );
+                    floor.addFurniture(furniture);
+                }
+            }
+        });
+        
     }
 
     /**

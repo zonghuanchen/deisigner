@@ -1,0 +1,111 @@
+import * as THREE from 'three';
+import { BaseModel } from './BaseModel';
+import { ModelRegistry } from '../ModelRegistry';
+import { FURNITURE_MODEL } from '../types';
+
+export interface FurnitureChangeEvent {
+    type: 'change';
+    furniture: FurnitureModel;
+}
+
+export type FurnitureChangeListener = (event: FurnitureChangeEvent) => void;
+
+export interface FurnitureEventMap {
+    change: FurnitureChangeEvent;
+}
+
+/**
+ * Represents a furniture item in the scene.
+ * Contains position, rotation, scale, and GLTF model path.
+ */
+export class FurnitureModel extends BaseModel {
+    private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
+    private _rotation: THREE.Euler = new THREE.Euler(0, 0, 0);
+    private _scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
+    private _gltfPath: string;
+
+    constructor(
+        gltfPath: string = '',
+        position: THREE.Vector3 = new THREE.Vector3(0, 0, 0),
+        rotation: THREE.Euler = new THREE.Euler(0, 0, 0),
+        scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
+        id?: string
+    ) {
+        super(id);
+        this._gltfPath = gltfPath;
+        this._position = position.clone();
+        this._rotation = rotation.clone();
+        this._scale = scale.clone();
+    }
+
+    /**
+     * Gets the position of the furniture
+     */
+    get position(): THREE.Vector3 {
+        return this._position;
+    }
+
+    /**
+     * Sets the position of the furniture
+     */
+    set position(value: THREE.Vector3) {
+        this._position.copy(value);
+        this.dirty();
+    }
+
+    /**
+     * Gets the rotation of the furniture
+     */
+    get rotation(): THREE.Euler {
+        return this._rotation;
+    }
+
+    /**
+     * Sets the rotation of the furniture
+     */
+    set rotation(value: THREE.Euler) {
+        this._rotation.copy(value);
+        this.dirty();
+    }
+
+    /**
+     * Gets the scale of the furniture
+     */
+    get scale(): THREE.Vector3 {
+        return this._scale;
+    }
+
+    /**
+     * Sets the scale of the furniture
+     */
+    set scale(value: THREE.Vector3) {
+        this._scale.copy(value);
+        this.dirty();
+    }
+
+    /**
+     * Gets the GLTF model path
+     */
+    get gltfPath(): string {
+        return this._gltfPath;
+    }
+
+    /**
+     * Sets the GLTF model path
+     */
+    set gltfPath(value: string) {
+        this._gltfPath = value;
+        this.dirty();
+    }
+
+    /**
+     * Triggers a change event to notify listeners that the furniture has been modified
+     */
+    dirty(): void {
+        this._isDirty = true;
+        this.dispatchEvent({ type: 'change', furniture: this });
+    }
+}
+
+// Register the model
+ModelRegistry.getInstance().register(FURNITURE_MODEL, FurnitureModel);

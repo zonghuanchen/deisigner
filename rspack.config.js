@@ -41,18 +41,42 @@ module.exports = {
         type: 'css',
         use: ['postcss-loader'],
       },
+      {
+        test: /\.(glb|gltf|bin|png|jpg|jpeg|svg)$/,
+        type: 'asset/resource',
+        generator: {
+          filename: 'assets/[name][ext]',
+        },
+      },
     ],
   },
   plugins: [
     new rspack.HtmlRspackPlugin({
       template: './index.html',
     }),
+    new rspack.CopyRspackPlugin({
+      patterns: [
+        {
+          from: 'assets',
+          to: 'assets',
+        },
+      ],
+    }),
   ],
   experiments: {
     css: true,
   },
   devServer: {
-    port: 3000,
+    port: 3001,
     hot: true,
+    static: [
+      {
+        directory: path.resolve(__dirname, 'src'),
+      },
+      {
+        directory: path.resolve(__dirname, 'assets'),
+        publicPath: '/assets',
+      },
+    ],
   },
 };

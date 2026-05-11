@@ -4,5 +4,6 @@ export { Floor } from './Floor';
 export { Wall } from './Wall';
 export { Room } from './Room';
 export { Face } from './Face';
+export { Furniture } from './Furniture';
 // Camera3D has been merged into Scene3DManager
 export { Scene3DManager } from '../Scene3DManager';

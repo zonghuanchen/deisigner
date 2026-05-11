@@ -1,5 +1,6 @@
 import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
+import { FurnitureModel } from './FurnitureModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { FLOOR_MODEL } from '../types';
 
@@ -74,6 +75,13 @@ export class FloorModel extends BaseModel {
     }
 
     /**
+      * Gets all furniture models on this floor
+      */
+    get furnitures(): FurnitureModel[] {
+        return this._children.filter(child => child instanceof FurnitureModel) as FurnitureModel[];
+    }
+
+    /**
       * Adds a wall to this floor
       */
     addWall(wall: WallModel): void {
@@ -85,6 +93,20 @@ export class FloorModel extends BaseModel {
       */
     removeWall(wall: WallModel | string): void {
         this.removeChild(wall);
+    }
+
+    /**
+      * Adds a furniture to this floor
+      */
+    addFurniture(furniture: FurnitureModel): void {
+        this.addChild(furniture);
+    }
+
+    /**
+      * Removes a furniture from this floor by instance or id
+      */
+    removeFurniture(furniture: FurnitureModel | string): void {
+        this.removeChild(furniture);
     }
 
     /**
