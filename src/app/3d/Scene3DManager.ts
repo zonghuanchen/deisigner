@@ -5,6 +5,7 @@ import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
 import './display/Floor';
 import './display/Wall';
+import './display/Room';
 import './display/Face';
 
 export class Scene3DManager {
