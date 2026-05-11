@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CameraModel, CameraManager, App } from '../../core';
+import { CameraModelOrbitControls } from './CameraModelOrbitControls';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
 import './display/Floor';
@@ -12,7 +12,7 @@ export class Scene3DManager {
     private static instance: Scene3DManager;
     private scene: THREE.Scene;
     private camera: THREE.PerspectiveCamera;
-    private controls: OrbitControls;
+    private controls!: CameraModelOrbitControls;
     private renderer: THREE.WebGLRenderer;
     private cameraModel: CameraModel | null = null;
 
@@ -40,16 +40,22 @@ export class Scene3DManager {
 
         // Initialize renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        
-        // Initialize controls
-        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = 2;
-        this.controls.maxDistance = 50;
 
-        // Add light gray grid floor
+        // Setup camera model integration (must precede controls creation)
+        this.setupCameraModel();
+
+        // Initialize controls bound to the CameraModel
+        if (this.cameraModel) {
+            this.controls = new CameraModelOrbitControls(this.cameraModel, this.renderer.domElement);
+            this.controls.enableDamping = true;
+            this.controls.dampingFactor = 0.05;
+            this.controls.minDistance = 2;
+            this.controls.maxDistance = 50;
+        }
+
+        // Add light gray grid floor (below ground plane)
         const gridHelper = new THREE.GridHelper(32, 32, 0xcccccc, 0xdddddd);
+        gridHelper.position.y = -0.01;
         this.scene.add(gridHelper);
 
         // Add large white ground plane
@@ -102,9 +108,6 @@ export class Scene3DManager {
         directionalLight.position.set(10, 20, 10);
         this.scene.add(directionalLight);
 
-        // Setup camera model integration
-        this.setupCameraModel();
-
         // Find the Scene display object and add its node to the Three.js scene
         for (const display of DisplayObject3D.getAll()) {
             if (display instanceof Scene) {
@@ -120,10 +123,9 @@ export class Scene3DManager {
             const activeCamera = cameraManager.getActiveCamera();
             if (activeCamera) {
                 this.cameraModel = activeCamera;
-                
-                // Set initial camera position from model
-                this.camera.position.copy(this.cameraModel.position);
-                this.camera.lookAt(this.cameraModel.target);
+
+                // Apply full camera state from model
+                this.syncCameraFromModel();
 
                 // Listen to camera model changes
                 this.cameraModel.addEventListener('change', () => this.onCameraModelChange());
@@ -132,11 +134,21 @@ export class Scene3DManager {
     }
 
     private onCameraModelChange() {
-        if (this.cameraModel) {
-            // Update THREE.js camera based on model changes
-            this.camera.position.copy(this.cameraModel.position);
-            this.camera.lookAt(this.cameraModel.target);
-        }
+        this.syncCameraFromModel();
+    }
+
+    private syncCameraFromModel() {
+        if (!this.cameraModel) return;
+        const m = this.cameraModel;
+        this.camera.position.copy(m.position);
+        this.camera.up.copy(m.up);
+        this.camera.lookAt(m.target);
+        this.camera.fov = m.fov;
+        this.camera.aspect = m.aspect;
+        this.camera.near = m.near;
+        this.camera.far = m.far;
+        this.camera.zoom = m.zoom;
+        this.camera.updateProjectionMatrix();
     }
 
     getScene(): THREE.Scene {
@@ -151,7 +163,7 @@ export class Scene3DManager {
         return this.renderer;
     }
 
-    getControls(): OrbitControls {
+    getControls(): CameraModelOrbitControls {
         return this.controls;
     }
 
@@ -161,11 +173,11 @@ export class Scene3DManager {
     }
 
     updateControls() {
-        this.controls.update();
+        this.controls?.update();
     }
 
     render() {
-        this.controls.update();
+        this.controls?.update();
         this.renderer.render(this.scene, this.camera);
     }
 
