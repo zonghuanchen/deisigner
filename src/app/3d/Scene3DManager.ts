@@ -27,7 +27,6 @@ export class Scene3DManager {
 
     constructor() {
         this.scene = new THREE.Scene();
-        (window as any).scene = this.scene;
         this.scene.background = new THREE.Color(0xffffff); // White background
 
         // Initialize camera

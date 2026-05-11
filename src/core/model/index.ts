@@ -4,4 +4,5 @@ export * from './CameraManager';
 export * from './FaceModel';
 export * from './FloorModel';
 export * from './WallModel';
+export * from './RoomModel';
 export * from './SceneModel';

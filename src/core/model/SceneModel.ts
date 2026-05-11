@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
 import { FloorModel } from './FloorModel';
+import { RoomModel } from './RoomModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { SCENE_MODEL } from '../types';
+import { RoomBuilder } from '../util';
 
 export interface SceneChangeEvent {
     type: 'change';
@@ -92,6 +94,11 @@ export class SceneModel extends BaseModel {
 
         wall4.addLink({ wall: wall, end: 'to' });
         wall.addLink({ wall: wall4, end: 'from' });
+
+        const rooms = RoomBuilder.build(this);
+        for (const room of rooms) {
+            this.addRoom(room);
+        }
     }
 
     /**
@@ -130,6 +137,49 @@ export class SceneModel extends BaseModel {
       */
     get walls(): WallModel[] {
         return this.floors.flatMap(floor => floor.walls);
+    }
+
+    /**
+      * Gets all room models directly attached to the scene
+      */
+    get rooms(): RoomModel[] {
+        return this._children.filter(child => child instanceof RoomModel) as RoomModel[];
+    }
+
+    /**
+      * Adds a room as a child of the scene
+      */
+    addRoom(room: RoomModel): void {
+        this.addChild(room);
+    }
+
+    /**
+      * Removes a room from the scene by instance or id
+      */
+    removeRoom(room: RoomModel | string): void {
+        this.removeChild(room);
+    }
+
+    /**
+      * Removes all rooms currently attached to the scene
+      */
+    clearRooms(): void {
+        for (const room of this.rooms) {
+            this.removeChild(room);
+        }
+    }
+
+    /**
+      * Rebuilds rooms by scanning walls for closed contours.
+      * Existing rooms are removed before the new ones are added.
+      */
+    rebuildRooms(): RoomModel[] {
+        this.clearRooms();
+        const rooms = RoomBuilder.build(this);
+        for (const room of rooms) {
+            this.addRoom(room);
+        }
+        return rooms;
     }
 
     /**

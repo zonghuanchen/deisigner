@@ -43,5 +43,6 @@ export class App implements IApp {
 
 export * from './model/index';
 export * from './material/index';
+export * from './util/index';
 export * from './types';
 export { ModelRegistry } from './ModelRegistry';
