@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppViewer, VIEWER_3D } from '../app';
 import { UIContainer } from '../app/ui';
+import { ParametricDemo } from '../app/3d/ParametricDemo';
+import { ModelRegistry } from '../core/ModelRegistry';
 
 export function App() {
     const primaryRef = useRef<HTMLDivElement>(null);
     const secondaryRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<AppViewer | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         if (!primaryRef.current || !secondaryRef.current) return;
@@ -15,6 +18,12 @@ export function App() {
 
         viewer.init(primaryRef.current, secondaryRef.current).then(() => {
             viewer.render();
+            
+            // Set the Scene3D for parametric demo
+            const scene3D = viewer.getScene3d();
+            if (scene3D) {
+                ParametricDemo.setScene3D(scene3D);
+            }
         });
 
         const handleResize = () => viewer.render();
@@ -24,6 +33,17 @@ export function App() {
             window.removeEventListener('resize', handleResize);
         };
     }, []);
+
+    const handleCreateBottle = async () => {
+        setIsLoading(true);
+        try {
+            await ParametricDemo.createAndShowBottle();
+        } catch (error) {
+            console.error('Bottle creation error:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-gray-900">
@@ -40,7 +60,17 @@ export function App() {
             <UIContainer>
                 <div className="p-4 pointer-events-auto">
                     <h1 className="text-xl font-bold mb-4 text-white">3D家装设计软件</h1>
-                    <p className="text-sm text-gray-300">2D视图已固定为右上角浮动窗口</p>
+                    <p className="text-sm text-gray-300 mb-4">2D视图已固定为右上角浮动窗口</p>
+                    
+                    <div className="space-y-2">
+                        <button
+                            onClick={handleCreateBottle}
+                            disabled={isLoading}
+                            className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
+                        >
+                            {isLoading ? 'Loading...' : 'Create Bottle'}
+                        </button>
+                    </div>
                 </div>
             </UIContainer>
         </div>

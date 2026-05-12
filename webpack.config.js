@@ -1,7 +1,8 @@
 const path = require('path');
-const rspack = require('@rspack/core');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
-/** @type {import('@rspack/core').Configuration} */
+/** @type {import('webpack').Configuration} */
 module.exports = {
   entry: {
     main: './src/editor/index.tsx',
@@ -13,6 +14,17 @@ module.exports = {
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+    alias: {
+      '@core': path.resolve(__dirname, 'src/core'),
+      '@app': path.resolve(__dirname, 'src/app'),
+      '@editor': path.resolve(__dirname, 'src/editor'),
+    },
+    fallback: {
+      path: false,
+      fs: false,
+      crypto: false,
+      child_process: false,
+    },
   },
   module: {
     rules: [
@@ -20,26 +32,15 @@ module.exports = {
         test: /\.tsx?$/,
         exclude: /node_modules/,
         use: {
-          loader: 'builtin:swc-loader',
+          loader: 'ts-loader',
           options: {
-            jsc: {
-              parser: {
-                syntax: 'typescript',
-                tsx: true,
-              },
-              transform: {
-                react: {
-                  runtime: 'automatic',
-                },
-              },
-            },
+            transpileOnly: true,
           },
         },
       },
       {
         test: /\.css$/,
-        type: 'css',
-        use: ['postcss-loader'],
+        use: ['style-loader', 'css-loader', 'postcss-loader'],
       },
       {
         test: /\.(glb|gltf|bin|png|jpg|jpeg|svg)$/,
@@ -48,13 +49,22 @@ module.exports = {
           filename: 'assets/[name][ext]',
         },
       },
+      {
+        test: /\.wasm$/,
+        type: 'javascript/auto',
+        loader: 'file-loader',
+        options: {
+          publicPath: '../../wasm/',
+          outputPath: 'wasm/',
+        },
+      },
     ],
   },
   plugins: [
-    new rspack.HtmlRspackPlugin({
+    new HtmlWebpackPlugin({
       template: './index.html',
     }),
-    new rspack.CopyRspackPlugin({
+    new CopyWebpackPlugin({
       patterns: [
         {
           from: 'assets',
@@ -63,11 +73,8 @@ module.exports = {
       ],
     }),
   ],
-  experiments: {
-    css: true,
-  },
   devServer: {
-    port: 3001,
+    port: 3007,
     hot: true,
     static: [
       {
@@ -79,4 +86,6 @@ module.exports = {
       },
     ],
   },
+  mode: 'development',
+  devtool: 'source-map',
 };
