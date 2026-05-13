@@ -45,6 +45,17 @@ export function App() {
         }
     };
 
+    const handleCreateCylinderWithHoles = async () => {
+        setIsLoading(true);
+        try {
+            await ParametricDemo.createAndShowCylinderWithHoles();
+        } catch (error) {
+            console.error('Cylinder with holes creation error:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-gray-900">
             {/* 3D view takes full screen */}
@@ -69,6 +80,14 @@ export function App() {
                             className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
                         >
                             {isLoading ? 'Loading...' : 'Create Bottle'}
+                        </button>
+                        
+                        <button
+                            onClick={handleCreateCylinderWithHoles}
+                            disabled={isLoading}
+                            className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
+                        >
+                            {isLoading ? 'Loading...' : 'Create Cylinder with Holes'}
                         </button>
                     </div>
                 </div>

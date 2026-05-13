@@ -1,49 +1,28 @@
-import initOC from 'opencascade.js';
-import type { OpenCascadeInstance } from 'opencascade.js/dist/opencascade.full';
-
-let openCascadeInstance: OpenCascadeInstance | null = null;
-let initializationPromise: Promise<OpenCascadeInstance> | null = null;
+/**
+ * JSCAD Modeling Helper
+ * @jscad/modeling is a pure JavaScript library - no WASM initialization needed
+ */
 
 /**
- * Initialize OpenCascade.js
- * Returns a promise that resolves to the OpenCascade instance
+ * Initialize JSCAD (no async initialization required)
+ * Returns immediately for compatibility
  */
-export async function initOpenCascade(): Promise<OpenCascadeInstance> {
-    if (openCascadeInstance) {
-        return openCascadeInstance;
-    }
-
-    if (initializationPromise) {
-        return initializationPromise;
-    }
-
-    // Use the main bundle (opencascade.full.wasm) which already includes everything.
-    initializationPromise = initOC().then((oc) => {
-        openCascadeInstance = oc;
-        console.log('OpenCascade.js initialized successfully');
-        return oc;
-    }).catch((error: any) => {
-        console.error('Failed to initialize OpenCascade.js:', error);
-        initializationPromise = null;
-        throw error;
-    });
-
-    return initializationPromise as Promise<OpenCascadeInstance>;
+export async function initOpenCascade(): Promise<void> {
+    // JSCAD doesn't need async initialization
+    console.log('JSCAD modeling ready');
+    return Promise.resolve();
 }
 
 /**
- * Get the OpenCascade instance (must be called after initialization)
+ * Get JSCAD modules (synchronous)
  */
-export function getOpenCascade(): OpenCascadeInstance {
-    if (!openCascadeInstance) {
-        throw new Error('OpenCascade.js not initialized. Call initOpenCascade() first.');
-    }
-    return openCascadeInstance;
+export function getOpenCascade() {
+    return require('@jscad/modeling');
 }
 
 /**
- * Check if OpenCascade is initialized
+ * Check if JSCAD is ready (always true)
  */
 export function isOpenCascadeInitialized(): boolean {
-    return openCascadeInstance !== null;
+    return true;
 }
