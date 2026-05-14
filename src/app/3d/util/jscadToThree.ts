@@ -8,7 +8,7 @@ import * as THREE from 'three';
 function calculateNormal(polygon: any): [number, number, number] {
     // If polygon already has plane equation, use it directly
     if (polygon.plane) {
-        const normal = polygon.plane.normal;
+        const normal = polygon.plane;
         return [normal[0], normal[1], normal[2]];
     }
 

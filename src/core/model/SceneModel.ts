@@ -171,7 +171,19 @@ export class SceneModel extends BaseModel {
                     params: {
                         radius: 0.5,
                         height: 3
-                    }
+                    },
+                    bool: [
+                        {
+                            type: 'subtract',
+                            shape: {
+                                type: 'cylinder',
+                                params: {
+                                    radius: 0.2,
+                                    height: 3
+                                }
+                            }
+                        }
+                    ]
                 }
             ];
             const parametricModel = new ParametricModel(
