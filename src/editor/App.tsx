@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppViewer, VIEWER_3D } from '../app';
 import { UIContainer } from '../app/ui';
+import { setupTestScene } from './testScene';
+import { App as CoreApp } from '../core';
 
 export function App() {
     const primaryRef = useRef<HTMLDivElement>(null);
@@ -15,6 +17,9 @@ export function App() {
         viewerRef.current = viewer;
 
         viewer.init(primaryRef.current, secondaryRef.current).then(() => {
+            // Setup test scene after viewer is initialized
+            const scene = CoreApp.getInstance().getScene();
+            setupTestScene(scene);
             viewer.render();
         });
 
