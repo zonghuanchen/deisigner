@@ -7,3 +7,4 @@ export * from './WallModel';
 export * from './RoomModel';
 export * from './SceneModel';
 export * from './FurnitureModel';
+export * from './ParametricModel';

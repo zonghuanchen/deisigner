@@ -4,6 +4,8 @@ import { WallModel } from './WallModel';
 import { FloorModel } from './FloorModel';
 import { RoomModel } from './RoomModel';
 import { FurnitureModel } from './FurnitureModel';
+import { ParametricModel } from './ParametricModel';
+import { ParametricDef } from '../util/ParametricModeler';
 import { ModelRegistry } from '../ModelRegistry';
 import { SCENE_MODEL } from '../types';
 import { RoomBuilder } from '../util';
@@ -158,6 +160,25 @@ export class SceneModel extends BaseModel {
                 }
             }
         });
+        
+        // Add a parametric cylinder model
+        const parametricParams: ParametricDef[] = [
+            {
+                type: 'cylinder',
+                params: {
+                    start: [0, 0, 0],
+                    end: [3, 3, 10],
+                    radius: 1
+                }
+            }
+        ];
+        const parametricModel = new ParametricModel(
+            parametricParams,
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Euler(0, 0, 0),
+            new THREE.Vector3(1, 1, 1)
+        );
+        floor.addParametric(parametricModel);
         
     }
 

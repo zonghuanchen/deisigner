@@ -1,6 +1,7 @@
 import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
 import { FurnitureModel } from './FurnitureModel';
+import { ParametricModel } from './ParametricModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { FLOOR_MODEL } from '../types';
 
@@ -82,6 +83,13 @@ export class FloorModel extends BaseModel {
     }
 
     /**
+      * Gets all parametric models on this floor
+      */
+    get parametrics(): ParametricModel[] {
+        return this._children.filter(child => child instanceof ParametricModel) as ParametricModel[];
+    }
+
+    /**
       * Adds a wall to this floor
       */
     addWall(wall: WallModel): void {
@@ -107,6 +115,20 @@ export class FloorModel extends BaseModel {
       */
     removeFurniture(furniture: FurnitureModel | string): void {
         this.removeChild(furniture);
+    }
+
+    /**
+      * Adds a parametric model to this floor
+      */
+    addParametric(parametric: ParametricModel): void {
+        this.addChild(parametric);
+    }
+
+    /**
+      * Removes a parametric model from this floor by instance or id
+      */
+    removeParametric(parametric: ParametricModel | string): void {
+        this.removeChild(parametric);
     }
 
     /**
