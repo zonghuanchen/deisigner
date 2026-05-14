@@ -33,9 +33,9 @@ export interface ParametricEventMap {
  */
 export class ParametricModel extends BaseModel {
     private _params: ParametricDef[] | null;
-    private _position: THREE.Vector3;
-    private _rotation: THREE.Euler;
-    private _scale: THREE.Vector3;
+    private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
+    private _rotation: THREE.Euler = new THREE.Euler(0, 0, 0);
+    private _scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
 
     constructor(
         params: ParametricDef[] | null = null,
@@ -44,11 +44,12 @@ export class ParametricModel extends BaseModel {
         scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
         id?: string
     ) {
-        super(id);
+        super(id, false);
         this._params = params;
         this._position = position.clone();
         this._rotation = rotation.clone();
         this._scale = scale.clone();
+        this.dispatchCreateModel();
     }
 
     /**

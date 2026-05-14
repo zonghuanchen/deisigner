@@ -12,11 +12,17 @@ export abstract class BaseModel extends THREE.EventDispatcher<any> {
 
     protected _children: BaseModel[];
 
-    constructor(id?: string) {
+    constructor(id?: string, dispatchCreateEvent = true) {
         super();
         this._id = id || this.generateId();
         this._isDirty = false;
         this._children = [];
+        if (dispatchCreateEvent) {
+          ModelRegistry.getInstance().dispatchEvent({ type: 'createModel', model: this });
+        }
+    }
+
+    dispatchCreateModel(): void {
         ModelRegistry.getInstance().dispatchEvent({ type: 'createModel', model: this });
     }
 

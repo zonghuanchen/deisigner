@@ -161,24 +161,27 @@ export class SceneModel extends BaseModel {
             }
         });
         
-        // Add a parametric cylinder model
-        const parametricParams: ParametricDef[] = [
-            {
-                type: 'cylinder',
-                params: {
-                    start: [0, 0, 0],
-                    end: [3, 3, 10],
-                    radius: 1
+        // Defer parametric model creation to avoid triggering display object creation during construction
+        // This prevents infinite loop issues when ModelRegistry creates display objects
+        Promise.resolve().then(() => {
+            // Add a parametric cylinder model
+            const parametricParams: ParametricDef[] = [
+                {
+                    type: 'cylinder',
+                    params: {
+                        radius: 0.5,
+                        height: 3
+                    }
                 }
-            }
-        ];
-        const parametricModel = new ParametricModel(
-            parametricParams,
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Euler(0, 0, 0),
-            new THREE.Vector3(1, 1, 1)
-        );
-        floor.addParametric(parametricModel);
+            ];
+            const parametricModel = new ParametricModel(
+                parametricParams,
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Euler(0, 0, 0),
+                new THREE.Vector3(1, 1, 1)
+            );
+            floor.addParametric(parametricModel);
+        });
         
     }
 

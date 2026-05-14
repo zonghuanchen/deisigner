@@ -72,7 +72,6 @@ export class Parametric extends DisplayObject3D<ParametricModel> {
      */
     private updateGeometry(): void {
         const graphData = this.model.getGraphData();
-        
         if (!graphData) {
             this.mesh.visible = false;
             return;

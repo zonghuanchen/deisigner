@@ -8,6 +8,7 @@ import './display/Wall';
 import './display/Room';
 import './display/Face';
 import './display/Furniture';
+import './display/Parametric';
 
 export class Scene3DManager {
     private static instance: Scene3DManager;
