@@ -70,7 +70,7 @@ export class CameraModel extends BaseModel {
         options: CameraOptions = {},
         id?: string
     ) {
-        super(id);
+        super(id, false);
         this._cameraType = type;
         this._position = position.clone();
         this._target = target.clone();
@@ -86,6 +86,7 @@ export class CameraModel extends BaseModel {
         this._right = options.right ?? 1;
         this._top = options.top ?? 1;
         this._bottom = options.bottom ?? -1;
+        this.dispatchCreateModel();
     }
 
     get type(): CameraType {

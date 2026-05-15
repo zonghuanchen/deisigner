@@ -35,7 +35,7 @@ export class ModelRegistry extends THREE.EventDispatcher<any> {
                     new (this.display3dModels.get(key))(model);
                 }
                 if (this.display2dModels.has(key)) {
-                    (this.display2dModels.get(key))(model);
+                    new (this.display2dModels.get(key))(model);
                 }
                 break;
             }

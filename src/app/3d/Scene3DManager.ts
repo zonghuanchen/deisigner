@@ -17,6 +17,8 @@ export class Scene3DManager {
     private controls!: CameraModelOrbitControls;
     private renderer: THREE.WebGLRenderer;
     private cameraModel: CameraModel | null = null;
+    private gridHelper: THREE.GridHelper | null = null;
+    private ground: THREE.Mesh | null = null;
 
     /**
       * Gets the singleton instance of Scene3DManager
@@ -56,9 +58,9 @@ export class Scene3DManager {
         }
 
         // Add light gray grid floor (below ground plane)
-        const gridHelper = new THREE.GridHelper(32, 32, 0xcccccc, 0xdddddd);
-        gridHelper.position.y = -0.01;
-        this.scene.add(gridHelper);
+        this.gridHelper = new THREE.GridHelper(32, 32, 0xcccccc, 0xdddddd);
+        this.gridHelper.position.y = -0.01;
+        this.scene.add(this.gridHelper);
 
         // Add large white ground plane
         const groundGeometry = new THREE.PlaneGeometry(100, 100);
@@ -67,10 +69,10 @@ export class Scene3DManager {
             metalness: 0.1,
             roughness: 1,
         });
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -0.01;
-        this.scene.add(ground);
+        this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        this.ground.rotation.x = -Math.PI / 2;
+        this.ground.position.y = -0.01;
+        this.scene.add(this.ground);
 
         // Add blue skybox with gradient (hemisphere above ground only, matching grid size)
         const skyGeo = new THREE.SphereGeometry(16, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -137,6 +139,24 @@ export class Scene3DManager {
 
     private onCameraModelChange() {
         this.syncCameraFromModel();
+        this.updateGridVisibility();
+    }
+
+    /**
+     * Hides grid and ground when camera is below ground level (y < 0)
+     */
+    private updateGridVisibility() {
+        if (!this.cameraModel) return;
+        
+        const cameraY = this.cameraModel.position.y;
+        const shouldShow = cameraY >= 0;
+        
+        if (this.gridHelper) {
+            this.gridHelper.visible = shouldShow;
+        }
+        if (this.ground) {
+            this.ground.visible = shouldShow;
+        }
     }
 
     private syncCameraFromModel() {
