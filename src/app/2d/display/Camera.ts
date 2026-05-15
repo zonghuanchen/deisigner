@@ -45,9 +45,18 @@ export class Camera2D {
      * Wait for Scene2D to be initialized, then initialize visuals
      */
     private async waitForScene2DReady(): Promise<void> {
-        // Poll until Scene2D is initialized
+        // Poll until Scene2D is initialized (with timeout to prevent infinite loop)
+        const maxRetries = 500; // 500 * 10ms = 5 seconds timeout
+        let retries = 0;
+        
         while (!this.scene2D.isInitialized()) {
             await new Promise(resolve => setTimeout(resolve, 10));
+            retries++;
+            
+            if (retries >= maxRetries) {
+                console.warn('Camera2D: Scene2D initialization timeout. Visuals will not be created.');
+                return;
+            }
         }
         
         // Now safe to initialize visuals

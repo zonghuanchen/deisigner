@@ -54,7 +54,7 @@ export class AppViewer {
         const container3d = this.primaryContainer;
         const container2d = this.secondaryContainer;
 
-        this.scene2d = new Scene2D();
+        this.scene2d = Scene2D.getInstance();
         await this.scene2d.init(container2d, this.renderTimer);
 
         this.scene3d = new Scene3D(container3d, this.renderTimer);
