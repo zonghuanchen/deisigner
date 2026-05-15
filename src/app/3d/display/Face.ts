@@ -5,6 +5,14 @@ import { FaceModel } from '../../../core/model/FaceModel';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { FACE_MODEL } from '../../../core/types';
 import { toThreeJS } from '../util/archToThreeJS';
+
+// Suppress the maxLeafTris deprecation warning from three-mesh-bvh
+// This is an internal library warning that doesn't affect functionality
+const originalWarn = console.warn;
+console.warn = (...args: any[]) => {
+    if (args[0]?.includes?.('maxLeafTris')) return;
+    originalWarn.apply(console, args);
+};
 /**
  * 3D display object for a FaceModel.
  * Renders a flat mesh from outer and inner contours using CSG subtraction
@@ -45,8 +53,8 @@ export class Face extends DisplayObject3D<FaceModel> {
         }
 
         // Transform from architectural coords (XY ground, Z up) to Three.js coords (XZ ground, Y up)
-        const outer3js = outer.map(toThreeJS);
-        const inners3js = inners.map(inner => inner.map(toThreeJS));
+        const outer3js = outer.map((p: THREE.Vector3) => toThreeJS(p));
+        const inners3js = inners.map(inner => inner.map((p: THREE.Vector3) => toThreeJS(p)));
 
         // Compute plane normal and local basis from 3D vertices
         const normal = this.computeNormal(outer3js);

@@ -2,6 +2,8 @@ export * from './BaseModel';
 export * from './CameraModel';
 export * from './CameraManager';
 export * from './FaceModel';
+export * from './GroundModel';
+export * from './CeilingModel';
 export * from './FloorModel';
 export * from './WallModel';
 export * from './RoomModel';
