@@ -37,7 +37,10 @@ export class RoomModel extends BaseModel {
         linkWalls: WallModel[] = [],
         id?: string
     ) {
-        super(id);
+        // Don't dispatch create event in super() - we'll do it after setting properties
+        super(id, false);
+        
+        // Now set all properties
         this._outerContour = outerContour.map(p => p.clone());
         this._innerContours = innerContours.map(contour =>
             contour.map(p => p.clone())
@@ -51,6 +54,9 @@ export class RoomModel extends BaseModel {
         this.addChild(this._ceilingFace);
 
         this.updateFaces();
+        
+        // Now dispatch the create event so ModelRegistry can create display objects
+        this.dispatchCreateModel();
     }
 
     /**

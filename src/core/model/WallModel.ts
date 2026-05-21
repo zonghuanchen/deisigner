@@ -45,10 +45,10 @@ export interface WallEventMap {
   * Defined by a start point (from), end point (to), width (thickness), and height.
   */
 export class WallModel extends BaseModel {
-    private _from: THREE.Vector2;
-    private _to: THREE.Vector2;
-    private _width: number;
-    private _height: number;
+    private _from: THREE.Vector2 = new THREE.Vector2();
+    private _to: THREE.Vector2 = new THREE.Vector2();
+    private _width: number = 0.2;
+    private _height: number = 2.8;
     private _faces: Map<WallFacePosition, FaceModel> = new Map();
     private _holes: WallHole[] = [];
     private _holeRevealFaces: FaceModel[] = [];

@@ -87,6 +87,9 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         this.drawPoint(this.targetPoint, this.POINT_COLOR_TARGET);
         this.scene2D.getStage().addChild(this.targetPoint);
         
+        // Set initial z-index based on model position
+        this.updateZIndex();
+        
         // Setup drag interactions
         this.setupDragInteraction(this.positionPoint, 'position');
         this.setupDragInteraction(this.targetPoint, 'target');
@@ -239,6 +242,9 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         
         // Update dashed line
         this.drawDashedLine(posScreen, targetScreen);
+        
+        // Update z-index based on model position
+        this.updateZIndex();
     }
     
     /**
@@ -330,6 +336,17 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         this.positionPoint.destroy();
         this.targetPoint.destroy();
         this.dashedLine.destroy();
+    }
+    
+    /**
+     * Update z-index based on model position.z
+     */
+    private updateZIndex(): void {
+        // CameraModel has position property (THREE.Vector3)
+        const positionZ = this.cameraModel.position.z;
+        this.scene2D.updateDisplayZIndex(this.positionPoint, positionZ);
+        this.scene2D.updateDisplayZIndex(this.targetPoint, positionZ);
+        this.scene2D.updateDisplayZIndex(this.dashedLine, positionZ);
     }
 }
 

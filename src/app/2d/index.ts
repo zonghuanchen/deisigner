@@ -5,6 +5,8 @@ import { RenderTimer } from '../timer';
 
 // Import 2D display modules to trigger their registration
 import './display/Camera';
+import './display/Wall';
+import './display/Room';
 
 export class Scene2D extends THREE.EventDispatcher<any> {
     private static instance: Scene2D | null = null;
@@ -62,6 +64,19 @@ export class Scene2D extends THREE.EventDispatcher<any> {
         this.app.render();
     }
     
+    /**
+     * Update the z-index (render order) of a 2D display object based on model's position.z
+     * Higher z values will render on top
+     */
+    updateDisplayZIndex(graphics: any, positionZ: number): void {
+        // In PixiJS, higher zIndex means rendering on top
+        // We'll map position.z directly to zIndex
+        graphics.zIndex = Math.round(positionZ * 100); // Multiply for better precision
+        
+        // Enable zIndex sorting on stage
+        this.app.stage.sortableChildren = true;
+    }
+
     /**
      * Setup pan and zoom interactions
      */
