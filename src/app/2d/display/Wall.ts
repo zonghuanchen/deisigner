@@ -4,15 +4,15 @@ import { WallModel } from '../../../core/model/WallModel';
 import { Scene2D } from '../index';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { WALL_MODEL } from '../../../core/types';
+import { Base2DDisplay } from './Base2DDisplay';
 
 /**
  * 2D display object for a WallModel.
  * Renders wall as a thick line from 'from' to 'to' with gray fill and black stroke.
  */
-export class Wall2D extends THREE.EventDispatcher<any> {
+export class Wall2D extends Base2DDisplay {
     private wallGraphics!: PIXI.Graphics;
     private wallModel: WallModel;
-    private scene2D!: Scene2D;
     private boundOnWallChange: () => void;
     
     // Visual configuration
@@ -20,26 +20,16 @@ export class Wall2D extends THREE.EventDispatcher<any> {
     private readonly WALL_COLOR = 0x999999; // Gray for wall body
     private readonly STROKE_COLOR = 0x000000; // Black for wall edges
     private readonly STROKE_WIDTH = 1; // Edge stroke width
-    private readonly PIXELS_PER_UNIT = 25; // 25 pixels = 1 unit in world space
 
     constructor(wallModel: WallModel) {
         super();
         this.wallModel = wallModel;
         this.boundOnWallChange = this.onWallChange.bind(this);
         
-        // Get Scene2D instance (auto-creates if not exists)
-        this.scene2D = Scene2D.getInstance();
-        
         // Wait for Scene2D to be fully initialized before creating visuals
-        if (this.scene2D.isInitialized()) {
-            // Already initialized, create visuals immediately
+        this.waitForSceneInit(() => {
             this.initializeVisuals();
-        } else {
-            // Wait for initialization
-            this.scene2D.addEventListener('initialized', () => {
-                this.initializeVisuals();
-            });
-        }
+        });
     }
     
     /**
@@ -114,29 +104,7 @@ export class Wall2D extends THREE.EventDispatcher<any> {
         // WallModel uses architectural coordinates, position is on xy plane
         // We'll use a default z value for walls
         const positionZ = (this.wallModel as any).position?.z || 0;
-        this.scene2D.updateDisplayZIndex(this.wallGraphics, positionZ);
-    }
-    
-    /**
-     * Convert world coordinates to screen coordinates
-     */
-    private worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
-        const canvas = this.scene2D.getCanvas();
-        if (!canvas) {
-            return { x: 0, y: 0 };
-        }
-        const rect = canvas.getBoundingClientRect();
-        
-        // Get current zoom and pan from Scene2D
-        const zoomScale = this.scene2D.getZoomScale();
-        const panOffset = this.scene2D.getPanOffset();
-        
-        // Convert world coordinates to screen coordinates
-        // Account for: zoom scale, pan offset, and PIXELS_PER_UNIT
-        const screenX = worldX * this.PIXELS_PER_UNIT * zoomScale + panOffset.x + rect.width / 2;
-        const screenY = -worldY * this.PIXELS_PER_UNIT * zoomScale + panOffset.y + rect.height / 2;
-        
-        return { x: screenX, y: screenY };
+        this.updateDisplayZIndex(this.wallGraphics, positionZ);
     }
     
     /**

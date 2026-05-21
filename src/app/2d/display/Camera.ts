@@ -6,19 +6,19 @@ import { App } from '../../../core';
 import { Scene2D } from '../index';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { CAMERA_MODEL } from '../../../core/types';
+import { Base2DDisplay } from './Base2DDisplay';
 
 /**
  * 2D display object for a CameraModel.
  * Renders camera position and target as draggable points connected by a dashed line.
  * Dragging either point syncs changes back to the active CameraModel.
  */
-export class Camera2D extends THREE.EventDispatcher<any>{
+export class Camera2D extends Base2DDisplay{
     private positionPoint!: PIXI.Graphics;
     private targetPoint!: PIXI.Graphics;
     private dashedLine!: PIXI.Graphics;
     private cameraModel: CameraModel;
     private cameraManager!: CameraManager;
-    private scene2D!: Scene2D;
     private boundOnCameraChange: () => void;
     private boundOnManagerChange: () => void;
     private isVisible: boolean = false;
@@ -38,7 +38,6 @@ export class Camera2D extends THREE.EventDispatcher<any>{
     private readonly LINE_WIDTH = 2;
     private readonly DASH_LENGTH = 10;
     private readonly GAP_LENGTH = 5;
-    private readonly PIXELS_PER_UNIT = 25; // 50 pixels = 1 unit in world space
 
     constructor(cameraModel: CameraModel) {
         super();
@@ -46,11 +45,8 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         this.boundOnCameraChange = this.onCameraChange.bind(this);
         this.boundOnManagerChange = this.onManagerChange.bind(this);
         
-        // Get Scene2D instance (auto-creates if not exists)
-        this.scene2D = Scene2D.getInstance();
-        
         // Wait for Scene2D to be fully initialized before creating visuals
-        this.scene2D.addEventListener('initialized', () => {
+        this.waitForSceneInit(() => {
             this.initializeVisuals();
             // Defer CameraManager access to avoid circular dependency during construction
             // Use microtask to ensure CameraModel construction is complete
@@ -209,22 +205,6 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         const worldY = -(canvasY - rect.height / 2) / this.PIXELS_PER_UNIT; // Invert Y axis
         
         return { x: worldX, y: worldY };
-    }
-    
-    /**
-     * Convert world coordinates to screen coordinates
-     */
-    private worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
-        const canvas = this.scene2D.getCanvas();
-        if (!canvas) {
-            return { x: 0, y: 0 };
-        }
-        const rect = canvas.getBoundingClientRect();
-        
-        const screenX = worldX * this.PIXELS_PER_UNIT + rect.width / 2;
-        const screenY = -worldY * this.PIXELS_PER_UNIT + rect.height / 2;
-        
-        return { x: screenX, y: screenY };
     }
     
     /**
