@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as PIXI from 'pixi.js';
 import { CameraModel } from '../../../core/model/CameraModel';
+import { CameraManager } from '../../../core/model/CameraManager';
 import { App } from '../../../core';
 import { Scene2D } from '../index';
 import { ModelRegistry } from '../../../core/ModelRegistry';
@@ -16,12 +17,18 @@ export class Camera2D extends THREE.EventDispatcher<any>{
     private targetPoint!: PIXI.Graphics;
     private dashedLine!: PIXI.Graphics;
     private cameraModel: CameraModel;
+    private cameraManager!: CameraManager;
     private scene2D!: Scene2D;
     private boundOnCameraChange: () => void;
+    private boundOnManagerChange: () => void;
+    private isVisible: boolean = false;
     
     // Drag state
     private isDraggingPosition: boolean = false;
     private isDraggingTarget: boolean = false;
+    private dragStartPosition: { x: number; y: number } | null = null;
+    private dragStartCameraPos: THREE.Vector3 | null = null;
+    private dragStartCameraTarget: THREE.Vector3 | null = null;
     
     // Visual configuration
     private readonly POINT_RADIUS = 8;
@@ -31,12 +38,13 @@ export class Camera2D extends THREE.EventDispatcher<any>{
     private readonly LINE_WIDTH = 2;
     private readonly DASH_LENGTH = 10;
     private readonly GAP_LENGTH = 5;
-    private readonly PIXELS_PER_UNIT = 50; // 50 pixels = 1 unit in world space
+    private readonly PIXELS_PER_UNIT = 25; // 50 pixels = 1 unit in world space
 
     constructor(cameraModel: CameraModel) {
         super();
         this.cameraModel = cameraModel;
         this.boundOnCameraChange = this.onCameraChange.bind(this);
+        this.boundOnManagerChange = this.onManagerChange.bind(this);
         
         // Get Scene2D instance (auto-creates if not exists)
         this.scene2D = Scene2D.getInstance();
@@ -44,6 +52,13 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         // Wait for Scene2D to be fully initialized before creating visuals
         this.scene2D.addEventListener('initialized', () => {
             this.initializeVisuals();
+            // Defer CameraManager access to avoid circular dependency during construction
+            // Use microtask to ensure CameraModel construction is complete
+            queueMicrotask(() => {
+                this.cameraManager = App.getInstance().getCameraManager();
+                this.cameraManager.addEventListener('change', this.boundOnManagerChange);
+                this.updateVisibility();
+            });
         });
     }
     
@@ -51,15 +66,16 @@ export class Camera2D extends THREE.EventDispatcher<any>{
      * Initialize visual elements after Scene2D is ready
      */
     private initializeVisuals(): void {
-        
         // Create dashed line
         this.dashedLine = new PIXI.Graphics();
+        this.dashedLine.visible = false;
         this.scene2D.getStage().addChild(this.dashedLine);
         
         // Create position point (camera location)
         this.positionPoint = new PIXI.Graphics();
         this.positionPoint.interactive = true;
         this.positionPoint.cursor = 'move';
+        this.positionPoint.visible = false;
         this.drawPoint(this.positionPoint, this.POINT_COLOR_POSITION);
         this.scene2D.getStage().addChild(this.positionPoint);
         
@@ -67,15 +83,13 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         this.targetPoint = new PIXI.Graphics();
         this.targetPoint.interactive = true;
         this.targetPoint.cursor = 'move';
+        this.targetPoint.visible = false;
         this.drawPoint(this.targetPoint, this.POINT_COLOR_TARGET);
         this.scene2D.getStage().addChild(this.targetPoint);
         
         // Setup drag interactions
         this.setupDragInteraction(this.positionPoint, 'position');
         this.setupDragInteraction(this.targetPoint, 'target');
-        
-        // Initial render
-        this.update();
         
         // Listen for camera changes
         this.cameraModel.addEventListener('change', this.boundOnCameraChange);
@@ -96,6 +110,18 @@ export class Camera2D extends THREE.EventDispatcher<any>{
      */
     private setupDragInteraction(point: PIXI.Graphics, type: 'position' | 'target'): void {
         point.on('pointerdown', (event: PIXI.FederatedPointerEvent) => {
+            // Stop event propagation to prevent canvas pan
+            event.stopPropagation();
+            event.preventDefault();
+            
+            // Notify Scene2D that we're dragging a camera point
+            this.scene2D.setDraggingCameraPoint(true);
+            
+            // Record the start position
+            this.dragStartPosition = { x: event.global.x, y: event.global.y };
+            this.dragStartCameraPos = this.cameraModel.position.clone();
+            this.dragStartCameraTarget = this.cameraModel.target.clone();
+            
             if (type === 'position') {
                 this.isDraggingPosition = true;
             } else {
@@ -106,16 +132,40 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         point.on('globalpointermove', (event: PIXI.FederatedPointerEvent) => {
             if ((type === 'position' && this.isDraggingPosition) ||
                 (type === 'target' && this.isDraggingTarget)) {
-                const globalPos = event.global;
+                // Stop event propagation to prevent canvas pan
+                event.stopPropagation();
                 
-                // Convert screen coordinates to world coordinates (2D xy plane)
-                const worldPos = this.screenToWorld(globalPos.x, globalPos.y);
+                if (!this.dragStartPosition || !this.dragStartCameraPos || !this.dragStartCameraTarget) return;
                 
-                // Update camera model
+                const currentGlobalPos = event.global;
+                
+                // Calculate delta in screen coordinates
+                const deltaX = currentGlobalPos.x - this.dragStartPosition.x;
+                const deltaY = currentGlobalPos.y - this.dragStartPosition.y;
+                
+                // Get current zoom scale and pan offset from Scene2D
+                const zoomScale = this.scene2D.getZoomScale();
+                
+                // Convert delta from screen to world coordinates
+                // The stage has been scaled and translated, so we need to:
+                // 1. Divide by zoomScale to account for stage scaling
+                // 2. Divide by PIXELS_PER_UNIT to convert pixels to world units
+                const worldDeltaX = deltaX / (zoomScale * this.PIXELS_PER_UNIT);
+                const worldDeltaY = -deltaY / (zoomScale * this.PIXELS_PER_UNIT); // Invert Y axis
+                
+                // Apply delta to the start position
                 if (type === 'position') {
-                    this.cameraModel.position.set(worldPos.x, worldPos.y, this.cameraModel.position.z);
+                    this.cameraModel.position = new THREE.Vector3(
+                        this.dragStartCameraPos.x + worldDeltaX,
+                        this.dragStartCameraPos.y + worldDeltaY,
+                        this.dragStartCameraPos.z
+                    );
                 } else {
-                    this.cameraModel.target.set(worldPos.x, worldPos.y, this.cameraModel.target.z);
+                    this.cameraModel.target = new THREE.Vector3(
+                        this.dragStartCameraTarget.x + worldDeltaX,
+                        this.dragStartCameraTarget.y + worldDeltaY,
+                        this.dragStartCameraTarget.z
+                    );
                 }
             }
         });
@@ -123,6 +173,12 @@ export class Camera2D extends THREE.EventDispatcher<any>{
         const endDrag = () => {
             this.isDraggingPosition = false;
             this.isDraggingTarget = false;
+            this.dragStartPosition = null;
+            this.dragStartCameraPos = null;
+            this.dragStartCameraTarget = null;
+            
+            // Notify Scene2D that we're no longer dragging
+            this.scene2D.setDraggingCameraPoint(false);
         };
         
         point.on('pointerup', endDrag);
@@ -219,7 +275,39 @@ export class Camera2D extends THREE.EventDispatcher<any>{
      * Handle camera model change events
      */
     private onCameraChange(): void {
-        this.update();
+        if (this.isVisible) {
+            this.update();
+        }
+    }
+    
+    /**
+     * Handle camera manager change events (camera switching)
+     */
+    private onManagerChange(): void {
+        this.updateVisibility();
+    }
+    
+    /**
+     * Update visibility based on whether this camera is the active one
+     */
+    private updateVisibility(): void {
+        const activeCamera = this.cameraManager.getActiveCamera();
+        const shouldBeVisible = activeCamera === this.cameraModel;
+        
+        if (shouldBeVisible && !this.isVisible) {
+            // Show visuals
+            this.positionPoint.visible = true;
+            this.targetPoint.visible = true;
+            this.dashedLine.visible = true;
+            this.isVisible = true;
+            this.update();
+        } else if (!shouldBeVisible && this.isVisible) {
+            // Hide visuals
+            this.positionPoint.visible = false;
+            this.targetPoint.visible = false;
+            this.dashedLine.visible = false;
+            this.isVisible = false;
+        }
     }
     
     /**
@@ -227,6 +315,7 @@ export class Camera2D extends THREE.EventDispatcher<any>{
      */
     dispose(): void {
         this.cameraModel.removeEventListener('change', this.boundOnCameraChange);
+        this.cameraManager.removeEventListener('change', this.boundOnManagerChange);
         
         if (this.positionPoint.parent) {
             this.positionPoint.parent.removeChild(this.positionPoint);
