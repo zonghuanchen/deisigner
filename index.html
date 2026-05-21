@@ -6,9 +6,9 @@
     <title>3D家装设计软件</title>
   </head>
   <body>
-    <div id="root">
-      <div id="editor-3d"></div>
-      <div id="editor-2d"></div>
+    <div id="root" class="relative w-screen h-screen overflow-hidden bg-gray-900">
+      <div id="editor-3d" class="absolute inset-0 w-full h-full"></div>
+      <div id="editor-2d" class="absolute top-4 right-4 w-80 h-64 border-2 border-gray-400 rounded-lg shadow-lg bg-white overflow-hidden z-10"></div>
       <div id="editor-ui"></div>
     </div>
   </body>

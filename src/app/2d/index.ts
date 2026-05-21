@@ -1,16 +1,19 @@
 import { Application } from 'pixi.js';
+import * as THREE from 'three';
+
 import { RenderTimer } from '../timer';
 
 // Import 2D display modules to trigger their registration
 import './display/Camera';
 
-export class Scene2D {
+export class Scene2D extends THREE.EventDispatcher<any> {
     private static instance: Scene2D | null = null;
     private app: Application;
     private renderTimer: RenderTimer | null = null;
     private initialized: boolean = false;
 
     constructor() {
+        super();
         this.app = new Application();
         Scene2D.instance = this;
     }
@@ -33,6 +36,7 @@ export class Scene2D {
         });
         container.appendChild(this.app.canvas);
         this.initialized = true;
+        this.dispatchEvent({ type: 'initialized' });
 
         // Register render callback to timer if provided
         if (renderTimer) {

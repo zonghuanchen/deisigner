@@ -4,45 +4,21 @@ import { UIContainer } from '../app/ui';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '../core';
 
+const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
+viewer.init(
+    document.querySelector('#editor-3d')!, 
+    document.querySelector('#editor-2d')!
+).then(() => {
+    // Setup test scene after viewer is initialized
+    const scene = CoreApp.getInstance().getScene();
+    setupTestScene(scene);
+    viewer.render();
+});
+
 export function App() {
-    const primaryRef = useRef<HTMLDivElement>(null);
-    const secondaryRef = useRef<HTMLDivElement>(null);
-    const viewerRef = useRef<AppViewer | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-
-    useEffect(() => {
-        if (!primaryRef.current || !secondaryRef.current) return;
-
-        const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
-        viewerRef.current = viewer;
-
-        viewer.init(primaryRef.current, secondaryRef.current).then(() => {
-            // Setup test scene after viewer is initialized
-            const scene = CoreApp.getInstance().getScene();
-            setupTestScene(scene);
-            viewer.render();
-        });
-
-        const handleResize = () => viewer.render();
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-        };
-    }, []);
 
     return (
-        <div className="relative w-screen h-screen overflow-hidden bg-gray-900">
-            {/* 3D view takes full screen */}
-            <div ref={primaryRef} className="absolute inset-0 w-full h-full" />
-
-            {/* 2D view as floating window in top-right corner */}
-            <div
-                ref={secondaryRef}
-                className="absolute top-4 right-4 w-80 h-64 border-2 border-gray-400 rounded-lg shadow-lg bg-white overflow-hidden z-10"
-                style={{ minWidth: '320px', minHeight: '240px' }}
-            />
-
+        <div>
             <UIContainer>
                 <div className="p-4 pointer-events-auto">
                     <h1 className="text-xl font-bold mb-4 text-white">3D家装设计软件</h1>

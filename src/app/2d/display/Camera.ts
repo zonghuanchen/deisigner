@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import * as PIXI from 'pixi.js';
 import { CameraModel } from '../../../core/model/CameraModel';
 import { App } from '../../../core';
@@ -10,13 +11,13 @@ import { CAMERA_MODEL } from '../../../core/types';
  * Renders camera position and target as draggable points connected by a dashed line.
  * Dragging either point syncs changes back to the active CameraModel.
  */
-export class Camera2D {
+export class Camera2D extends THREE.EventDispatcher<any>{
     private positionPoint!: PIXI.Graphics;
     private targetPoint!: PIXI.Graphics;
     private dashedLine!: PIXI.Graphics;
     private cameraModel: CameraModel;
     private scene2D!: Scene2D;
-    private initialized: boolean = false;
+    private boundOnCameraChange: () => void;
     
     // Drag state
     private isDraggingPosition: boolean = false;
@@ -30,45 +31,26 @@ export class Camera2D {
     private readonly LINE_WIDTH = 2;
     private readonly DASH_LENGTH = 10;
     private readonly GAP_LENGTH = 5;
+    private readonly PIXELS_PER_UNIT = 50; // 50 pixels = 1 unit in world space
 
     constructor(cameraModel: CameraModel) {
+        super();
         this.cameraModel = cameraModel;
+        this.boundOnCameraChange = this.onCameraChange.bind(this);
         
         // Get Scene2D instance (auto-creates if not exists)
         this.scene2D = Scene2D.getInstance();
         
         // Wait for Scene2D to be fully initialized before creating visuals
-        this.waitForScene2DReady();
-    }
-    
-    /**
-     * Wait for Scene2D to be initialized, then initialize visuals
-     */
-    private async waitForScene2DReady(): Promise<void> {
-        // Poll until Scene2D is initialized (with timeout to prevent infinite loop)
-        const maxRetries = 500; // 500 * 10ms = 5 seconds timeout
-        let retries = 0;
-        
-        while (!this.scene2D.isInitialized()) {
-            await new Promise(resolve => setTimeout(resolve, 10));
-            retries++;
-            
-            if (retries >= maxRetries) {
-                console.warn('Camera2D: Scene2D initialization timeout. Visuals will not be created.');
-                return;
-            }
-        }
-        
-        // Now safe to initialize visuals
-        this.initializeVisuals();
+        this.scene2D.addEventListener('initialized', () => {
+            this.initializeVisuals();
+        });
     }
     
     /**
      * Initialize visual elements after Scene2D is ready
      */
     private initializeVisuals(): void {
-        if (this.initialized) return;
-        this.initialized = true;
         
         // Create dashed line
         this.dashedLine = new PIXI.Graphics();
@@ -96,7 +78,7 @@ export class Camera2D {
         this.update();
         
         // Listen for camera changes
-        this.cameraModel.addEventListener('change', this.onCameraChange.bind(this));
+        this.cameraModel.addEventListener('change', this.boundOnCameraChange);
     }
     
     /**
@@ -163,11 +145,9 @@ export class Camera2D {
         const canvasX = screenX - rect.left;
         const canvasY = screenY - rect.top;
         
-        // Apply a simple scale factor (adjust based on your viewport/camera zoom)
-        // This is a basic implementation - you may need to integrate with your actual camera/view transform
-        const scale = 0.01; // 100 pixels = 1 unit
-        const worldX = (canvasX - rect.width / 2) * scale;
-        const worldY = -(canvasY - rect.height / 2) * scale; // Invert Y axis
+        // Convert pixel coordinates to world coordinates
+        const worldX = (canvasX - rect.width / 2) / this.PIXELS_PER_UNIT;
+        const worldY = -(canvasY - rect.height / 2) / this.PIXELS_PER_UNIT; // Invert Y axis
         
         return { x: worldX, y: worldY };
     }
@@ -182,9 +162,8 @@ export class Camera2D {
         }
         const rect = canvas.getBoundingClientRect();
         
-        const scale = 0.01;
-        const screenX = worldX / scale + rect.width / 2;
-        const screenY = -worldY / scale + rect.height / 2;
+        const screenX = worldX * this.PIXELS_PER_UNIT + rect.width / 2;
+        const screenY = -worldY * this.PIXELS_PER_UNIT + rect.height / 2;
         
         return { x: screenX, y: screenY };
     }
@@ -193,7 +172,6 @@ export class Camera2D {
      * Update the visual representation based on camera model state
      */
     update(): void {
-        if (!this.initialized) return;
         
         // Update position point
         const posScreen = this.worldToScreen(this.cameraModel.position.x, this.cameraModel.position.y);
@@ -248,13 +226,17 @@ export class Camera2D {
      * Dispose this 2D camera display
      */
     dispose(): void {
-        if (!this.initialized) return;
+        this.cameraModel.removeEventListener('change', this.boundOnCameraChange);
         
-        this.cameraModel.removeEventListener('change', this.onCameraChange.bind(this));
-        
-        this.scene2D.getStage().removeChild(this.positionPoint);
-        this.scene2D.getStage().removeChild(this.targetPoint);
-        this.scene2D.getStage().removeChild(this.dashedLine);
+        if (this.positionPoint.parent) {
+            this.positionPoint.parent.removeChild(this.positionPoint);
+        }
+        if (this.targetPoint.parent) {
+            this.targetPoint.parent.removeChild(this.targetPoint);
+        }
+        if (this.dashedLine.parent) {
+            this.dashedLine.parent.removeChild(this.dashedLine);
+        }
         
         this.positionPoint.destroy();
         this.targetPoint.destroy();
