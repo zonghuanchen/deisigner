@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLB Bounding Box Calculator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f4fd;
+            border-radius: 5px;
+            border-left: 4px solid #2196F3;
+            display: none;
+        }
+        #result h3 {
+            margin-top: 0;
+            color: #1976D2;
+        }
+        .dimension {
+            margin: 5px 0;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        #canvas-container {
+            margin-top: 20px;
+            height: 400px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #1976D2;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GLB Model Bounding Box Calculator</h1>
+        <p>Calculating bounding box for: <strong>assets/door-model.glb</strong></p>
+        
+        <button id="calculateBtn">Calculate Bounding Box</button>
+        
+        <div id="result">
+            <h3>Bounding Box Results</h3>
+            <div id="results-content"></div>
+        </div>
+        
+        <div id="canvas-container"></div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        document.getElementById('calculateBtn').addEventListener('click', calculateBoundingBox);
+
+        async function calculateBoundingBox() {
+            const resultDiv = document.getElementById('result');
+            const resultsContent = document.getElementById('results-content');
+            const canvasContainer = document.getElementById('canvas-container');
+            
+            // Clear previous results
+            resultsContent.innerHTML = '';
+            resultDiv.style.display = 'none';
+            
+            // Show loading
+            resultsContent.innerHTML = '<p class="loading">Loading model...</p>';
+            resultDiv.style.display = 'block';
+            
+            try {
+                // Create scene, camera, renderer for visualization
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0xf0f0f0);
+                
+                const camera = new THREE.PerspectiveCamera(75, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+                camera.position.set(2, 2, 2);
+                
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                canvasContainer.innerHTML = '';
+                canvasContainer.appendChild(renderer.domElement);
+                
+                // Add lights
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                scene.add(ambientLight);
+                
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+                
+                // Add controls
+                const controls = new OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                
+                // Load GLB model
+                const loader = new GLTFLoader();
+                
+                loader.load(
+                    './door-model.glb',
+                    function(gltf) {
+                        const model = gltf.scene;
+                        
+                        // Add model to scene
+                        scene.add(model);
+                        
+                        // Calculate bounding box
+                        const boundingBox = new THREE.Box3().setFromObject(model);
+                        const size = boundingBox.getSize(new THREE.Vector3());
+                        const center = boundingBox.getCenter(new THREE.Vector3());
+                        
+                        // Display results
+                        resultsContent.innerHTML = `
+                            <div class="dimension"><strong>Min:</strong> (${boundingBox.min.x.toFixed(3)}, ${boundingBox.min.y.toFixed(3)}, ${boundingBox.min.z.toFixed(3)})</div>
+                            <div class="dimension"><strong>Max:</strong> (${boundingBox.max.x.toFixed(3)}, ${boundingBox.max.y.toFixed(3)}, ${boundingBox.max.z.toFixed(3)})</div>
+                            <div class="dimension"><strong>Size:</strong> (${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)})</div>
+                            <div class="dimension"><strong>Center:</strong> (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})</div>
+                        `;
+                        
+                        // Add bounding box helper to scene
+                        const boxHelper = new THREE.BoxHelper(model, 0xff0000);
+                        scene.add(boxHelper);
+                        
+                        // Adjust camera to fit model
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const fov = camera.fov * (Math.PI / 180);
+                        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                        camera.position.set(cameraZ * 1.5, cameraZ * 0.8, cameraZ * 1.5);
+                        camera.lookAt(center);
+                        controls.target.copy(center);
+                        controls.update();
+                        
+                        // Animation loop
+                        function animate() {
+                            requestAnimationFrame(animate);
+                            controls.update();
+                            renderer.render(scene, camera);
+                        }
+                        animate();
+                    },
+                    function(xhr) {
+                        if (xhr.lengthComputable) {
+                            const percent = (xhr.loaded / xhr.total) * 100;
+                            resultsContent.innerHTML = `<p class="loading">Loading: ${percent.toFixed(2)}%</p>`;
+                        }
+                    },
+                    function(error) {
+                        console.error('Error loading GLB model:', error);
+                        resultsContent.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message || 'Failed to load model'}</p>`;
+                    }
+                );
+            } catch (error) {
+                console.error('Error:', error);
+                resultsContent.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
