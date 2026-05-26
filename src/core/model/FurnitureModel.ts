@@ -22,6 +22,7 @@ export class FurnitureModel extends BaseModel {
     private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
     private _rotation: THREE.Euler = new THREE.Euler(0, 0, 0);
     private _scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
+    private _size: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
     private _gltfPath: string;
 
     constructor(
@@ -29,6 +30,7 @@ export class FurnitureModel extends BaseModel {
         position: THREE.Vector3 = new THREE.Vector3(0, 0, 0),
         rotation: THREE.Euler = new THREE.Euler(0, 0, 0),
         scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
+        size: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
         id?: string
     ) {
         super(id);
@@ -36,6 +38,7 @@ export class FurnitureModel extends BaseModel {
         this._position = position.clone();
         this._rotation = rotation.clone();
         this._scale = scale.clone();
+        this._size = size.clone();
     }
 
     /**
@@ -80,6 +83,21 @@ export class FurnitureModel extends BaseModel {
      */
     set scale(value: THREE.Vector3) {
         this._scale.copy(value);
+        this.dirty();
+    }
+
+    /**
+     * Gets the size of the furniture (width, length, height)
+     */
+    get size(): THREE.Vector3 {
+        return this._size;
+    }
+
+    /**
+     * Sets the size of the furniture (width, length, height)
+     */
+    set size(value: THREE.Vector3) {
+        this._size.copy(value);
         this.dirty();
     }
 

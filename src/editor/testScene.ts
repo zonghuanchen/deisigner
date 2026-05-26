@@ -18,13 +18,6 @@ export function setupTestScene(scene: SceneModel): void {
         0.24,
         2.8
     );
-    wall.addHole({
-        id: 'window-01',
-        position: 5,
-        width: 1.5,
-        height: 1.5,
-        sillHeight: 0.9,
-    });
     floor.addWall(wall);
 
     const wall2 = new WallModel(
@@ -33,13 +26,6 @@ export function setupTestScene(scene: SceneModel): void {
         0.24,
         2.8
     );
-    wall2.addHole({
-        id: 'window-02',
-        position: 5,
-        width: 1.5,
-        height: 2.3,
-        sillHeight: 0,
-    });
     floor.addWall(wall2);
 
     // Link the walls at their junction point (5, 5)
@@ -79,57 +65,37 @@ export function setupTestScene(scene: SceneModel): void {
     // Defer furniture creation to avoid triggering display object creation during construction
     // This prevents infinite loop issues when ModelRegistry creates display objects
     Promise.resolve().then(() => {
-        // Iterate through all walls and place furniture at each hole
-        for (const wall of floor.walls) {
-            const holes = wall.holes;
-            if (holes.length === 0) continue;
+        const furnituresData = [
+            {
+                position: new THREE.Vector3(0, 5, 0.9),
+                rotation: new THREE.Euler(0, 0, 0),
+                scale: new THREE.Vector3(0.5, 0.5, 0.5),
+                linkWall: wall
+            },{
+                position: new THREE.Vector3(5, 0, 0),
+                rotation: new THREE.Euler(0, 0, -Math.PI / 2),
+                scale: new THREE.Vector3(1, 1, 1),
+                linkWall: wall2
+            }
+        ];
 
-            // Calculate wall direction and offset
-            const from = wall.from;
-            const to = wall.to;
-            const direction = new THREE.Vector2().subVectors(to, from);
-            const wallLength = direction.length();
-            if (wallLength === 0) continue;
-
-            const dir = direction.clone().normalize();
-            const perp = new THREE.Vector2(-dir.y, dir.x);
-            const halfWidth = wall.width / 2;
-            const offset = perp.clone().multiplyScalar(halfWidth);
-
-            // Place furniture at each hole
-            for (const hole of holes) {
-                // Calculate hole center position along the wall
-                const holeCenterDist = hole.position;
-                const holeCenter2D = new THREE.Vector2().copy(from).add(
-                    new THREE.Vector2().copy(dir).multiplyScalar(holeCenterDist)
-                );
-
-                // Calculate the 3D position at the bottom center of the hole's front face
-                const holeCenterZ = hole.sillHeight;
-                const position3D = new THREE.Vector3(
-                    holeCenter2D.x + offset.x,
-                    holeCenter2D.y + offset.y,
-                    holeCenterZ
-                );
-
-                // Calculate rotation to align furniture with wall direction
-                const wallAngle = Math.atan2(dir.y, dir.x);
-                const rotation = new THREE.Euler(0, 0, wallAngle);
-                
-                // Scale furniture to match hole dimensions
-                const scale = new THREE.Vector3(
-                    hole.width,
-                    hole.height,
-                    1
-                );
-                
-                const furniture = new FurnitureModel(
-                    '/assets/door-model.glb',
-                    position3D,
-                    rotation,
-                    scale
-                );
-                floor.addFurniture(furniture);
+        // Place furniture at each hole
+        for (const furnitureData of furnituresData) {                
+            const furniture = new FurnitureModel(
+                '/assets/door-model.glb',
+                furnitureData.position,
+                furnitureData.rotation,
+                furnitureData.scale
+            );
+            furniture.size = new THREE.Vector3(
+                1.15 * furnitureData.scale.x, 
+                0.296 * furnitureData.scale.y, 
+                2.522 * furnitureData.scale.z
+            );
+            floor.addFurniture(furniture);
+            const hole = furnitureData.linkWall.checkFurnitureOverlap(furniture);
+            if (hole) {
+                furnitureData.linkWall.addHole(hole);
             }
         }
     });

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { FaceModel } from './FaceModel';
+import { FurnitureModel } from './FurnitureModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { WALL_MODEL } from '../types';
 
@@ -884,6 +885,135 @@ export class WallModel extends BaseModel {
         }
 
         return contours;
+    }
+
+    /**
+      * Checks if a furniture model overlaps with this wall and returns hole information if it does.
+      * @param furniture - The furniture model to check for overlap
+      * @returns WallHole object if there's overlap, null otherwise
+      */
+    checkFurnitureOverlap(furniture: FurnitureModel): WallHole | null {
+        // Get furniture bounding box in world space
+        const furniturePos = furniture.position;
+        const furnitureSize = furniture.size;
+        const furnitureRot = furniture.rotation;
+
+        // Calculate the furniture's bounding box considering rotation
+        // position is the left side of the bottom face (x=0 at left edge, centered in y)
+        const halfSize = new THREE.Vector3(
+            furnitureSize.x, // full width in x (from left edge)
+            furnitureSize.y / 2, // half width in y (centered)
+            0 // z starts from 0 (bottom), not centered
+        );
+
+        // Create a rotation matrix from the furniture's rotation
+        const rotationMatrix = new THREE.Matrix4().makeRotationFromEuler(furnitureRot);
+
+        // Calculate the 4 corners of the furniture bottom face
+        // x ranges from 0 to furnitureSize.x (left to right)
+        // y ranges from -furnitureSize.y/2 to +furnitureSize.y/2 (centered)
+        const bottomCorners: THREE.Vector3[] = [];
+        for (let x = 0; x <= 1; x += 1) {
+            for (let y = -1; y <= 1; y += 2) {
+                const corner = new THREE.Vector3(
+                    x * halfSize.x,
+                    y * halfSize.y,
+                    0
+                );
+                corner.applyMatrix4(rotationMatrix);
+                corner.add(furniturePos);
+                bottomCorners.push(corner);
+            }
+        }
+
+        // Calculate the 4 corners of the furniture top face
+        const topCorners: THREE.Vector3[] = [];
+        for (let x = 0; x <= 1; x += 1) {
+            for (let y = -1; y <= 1; y += 2) {
+                const corner = new THREE.Vector3(
+                    x * halfSize.x,
+                    y * halfSize.y,
+                    furnitureSize.z
+                );
+                corner.applyMatrix4(rotationMatrix);
+                corner.add(furniturePos);
+                topCorners.push(corner);
+            }
+        }
+
+        // Combine all corners
+        const corners = [...bottomCorners, ...topCorners];
+
+        // Get wall direction and properties
+        const wallFrom = this._from;
+        const wallTo = this._to;
+        const wallDirection = new THREE.Vector2().subVectors(wallTo, wallFrom);
+        const wallLength = wallDirection.length();
+        
+        if (wallLength === 0) return null;
+
+        const wallDir = wallDirection.clone().normalize();
+        const wallPerp = new THREE.Vector2(-wallDir.y, wallDir.x);
+        const halfWallWidth = this._width / 2;
+
+        // Project furniture corners onto wall's local coordinate system
+        let minProj = Infinity;
+        let maxProj = -Infinity;
+        let minPerp = Infinity;
+        let maxPerp = -Infinity;
+        let minZ = Infinity;
+        let maxZ = -Infinity;
+
+        for (const corner of corners) {
+            // Project corner onto wall direction
+            const corner2D = new THREE.Vector2(corner.x, corner.y);
+            const toCorner = new THREE.Vector2().subVectors(corner2D, wallFrom);
+            
+            const proj = toCorner.dot(wallDir); // Distance along wall
+            const perp = toCorner.dot(wallPerp); // Distance perpendicular to wall
+            
+            minProj = Math.min(minProj, proj);
+            maxProj = Math.max(maxProj, proj);
+            minPerp = Math.min(minPerp, perp);
+            maxPerp = Math.max(maxPerp, perp);
+            minZ = Math.min(minZ, corner.z);
+            maxZ = Math.max(maxZ, corner.z);
+        }
+
+        // Check if furniture overlaps with wall in all dimensions
+        const overlapsAlongWall = maxProj >= 0 && minProj <= wallLength;
+        const overlapsPerpendicular = minPerp <= halfWallWidth && maxPerp >= -halfWallWidth;
+        const overlapsVertical = maxZ >= 0 && minZ <= this._height;
+
+        if (!overlapsAlongWall || !overlapsPerpendicular || !overlapsVertical) {
+            return null;
+        }
+
+        // Calculate hole parameters based on actual overlap with wall
+        // Clamp the furniture projection to wall bounds
+        const overlapStart = Math.max(0, minProj);
+        const overlapEnd = Math.min(wallLength, maxProj);
+        const overlapWidth = overlapEnd - overlapStart;
+        
+        const overlapBottom = Math.max(0, minZ);
+        const overlapTop = Math.min(this._height, maxZ);
+        const overlapHeight = overlapTop - overlapBottom;
+
+        // Only create hole if there's significant overlap
+        if (overlapWidth <= 0.01 || overlapHeight <= 0.01) {
+            return null;
+        }
+
+        // Hole position is the center of the overlap region along the wall
+        const holeCenterPos = (overlapStart + overlapEnd) / 2;
+
+        return {
+            id: `furniture_hole_${furniture.id}_${Date.now()}`,
+            position: holeCenterPos,
+            width: overlapWidth,
+            height: overlapHeight,
+            sillHeight: overlapBottom
+        };
     }
 }
 
