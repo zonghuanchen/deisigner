@@ -61,7 +61,20 @@ export function setupTestScene(scene: SceneModel): void {
     for (const room of rooms) {
         scene.addRoom(room);
     }
-
+    
+    // Defer material assignment to ensure Face display objects have registered their listeners
+    Promise.resolve().then(() => {
+        for (const room of rooms) {
+            const material = room.groundFace.material;
+            const texture = new THREE.TextureLoader().load('/assets/material-1.jpg');
+            // Set texture repeat to control how many times the texture tiles across the floor
+            // Adjust these values based on your texture size and desired appearance
+            texture.repeat.set(2, 2);  // Tile 2x2 times across the floor
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            material.map = texture;
+        }
+    });
     // Defer furniture creation to avoid triggering display object creation during construction
     // This prevents infinite loop issues when ModelRegistry creates display objects
     Promise.resolve().then(() => {
@@ -132,5 +145,8 @@ export function setupTestScene(scene: SceneModel): void {
             new THREE.Vector3(1, 1, 1)
         );
         floor.addParametric(parametricModel);
+        
     });
+
+
 }

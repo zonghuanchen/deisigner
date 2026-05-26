@@ -25,10 +25,7 @@ export class Face extends DisplayObject3D<FaceModel> {
     private static evaluator = new Evaluator();
 
     constructor(model: FaceModel) {
-        const material = new THREE.MeshStandardMaterial({
-            color: 0xdddddd,
-            side: THREE.DoubleSide,
-        });
+        const material = new THREE.MeshStandardMaterial();
         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -37,11 +34,34 @@ export class Face extends DisplayObject3D<FaceModel> {
         this.mesh = mesh;
         this.material = material;
 
+        // Listen to model changes
         this.model.addEventListener('change', this.onModelChange.bind(this));
+        Promise.resolve().then(() => {
+            // Listen to material changes
+            this.model.material.addEventListener('change', this.onMaterialChange.bind(this));
+        });
     }
 
     private onModelChange(): void {
         this.updateGeometry();
+        this.updateMaterial();
+    }
+
+    private onMaterialChange(): void {
+        this.updateMaterial();
+    }
+
+    private updateMaterial(): void {
+        // Update the THREE material from the model's material
+        const newMaterial = this.model.material.toThreeMaterial();
+        newMaterial.side = THREE.DoubleSide;
+        
+        // Dispose old material
+        this.material.dispose();
+        
+        // Apply new material
+        this.material = newMaterial;
+        this.mesh.material = newMaterial;
     }
 
     private updateGeometry(): void {
@@ -67,7 +87,7 @@ export class Face extends DisplayObject3D<FaceModel> {
         const u = new THREE.Vector3().subVectors(outer3js[1], origin).normalize();
         const v = new THREE.Vector3().crossVectors(normal, u).normalize();
 
-        // Project 3D points onto the local 2D basis
+        // Project 3D points onto the local 2D basis (this becomes UV coordinates)
         const project2D = (p: THREE.Vector3): THREE.Vector2 => {
             const d = new THREE.Vector3().subVectors(p, origin);
             return new THREE.Vector2(d.dot(u), d.dot(v));
@@ -109,6 +129,10 @@ export class Face extends DisplayObject3D<FaceModel> {
             geometry.computeVertexNormals();
         }
 
+        // Set UV coordinates based on world-space projected positions
+        // This ensures textures align properly regardless of mesh origin
+        this.assignUVs(geometry, outer3js, u, v, origin);
+
         // Align mesh with the target plane
         const basisMatrix = new THREE.Matrix4();
         basisMatrix.makeBasis(u, v, normal);
@@ -119,6 +143,36 @@ export class Face extends DisplayObject3D<FaceModel> {
         this.mesh.geometry = geometry;
         this.mesh.geometry.computeBoundingSphere();
         this.mesh.visible = true;
+    }
+
+    private assignUVs(
+        geometry: THREE.BufferGeometry,
+        vertices: THREE.Vector3[],
+        u: THREE.Vector3,
+        v: THREE.Vector3,
+        origin: THREE.Vector3
+    ): void {
+        const position = geometry.attributes.position;
+        const uvArray: number[] = [];
+
+        for (let i = 0; i < position.count; i++) {
+            const x = position.getX(i);
+            const y = position.getY(i);
+            const z = position.getZ(i);
+
+            // Vertex is already in local space (mesh has been rotated by quaternion)
+            // We need to transform it back to world space to calculate UVs correctly
+            const localVertex = new THREE.Vector3(x, y, z);
+            const worldVertex = localVertex.applyQuaternion(this.mesh.quaternion).add(this.mesh.position);
+
+            // Project world vertex onto u-v basis to get UV coordinates
+            const d = new THREE.Vector3().subVectors(worldVertex, origin);
+            const uvU = d.dot(u);
+            const uvV = d.dot(v);
+
+            uvArray.push(uvU, uvV);
+        }
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvArray, 2));
     }
 
     private computeNormal(points: THREE.Vector3[]): THREE.Vector3 | null {

@@ -12,6 +12,10 @@ export class Material extends THREE.EventDispatcher<any> {
     protected _roughness: number;
     protected _transparent: boolean;
     protected _opacity: number;
+    protected _map: THREE.Texture | null;
+    protected _normalMap: THREE.Texture | null;
+    protected _roughnessMap: THREE.Texture | null;
+    protected _metalnessMap: THREE.Texture | null;
     protected _isDirty: boolean;
 
     constructor(options?: {
@@ -22,6 +26,10 @@ export class Material extends THREE.EventDispatcher<any> {
         roughness?: number;
         transparent?: boolean;
         opacity?: number;
+        map?: THREE.Texture | null;
+        normalMap?: THREE.Texture | null;
+        roughnessMap?: THREE.Texture | null;
+        metalnessMap?: THREE.Texture | null;
     }) {
         super();
         
@@ -32,6 +40,10 @@ export class Material extends THREE.EventDispatcher<any> {
         this._roughness = options?.roughness ?? 0.5;
         this._transparent = options?.transparent ?? false;
         this._opacity = options?.opacity ?? 1.0;
+        this._map = options?.map ?? null;
+        this._normalMap = options?.normalMap ?? null;
+        this._roughnessMap = options?.roughnessMap ?? null;
+        this._metalnessMap = options?.metalnessMap ?? null;
         this._isDirty = false;
     }
 
@@ -128,6 +140,62 @@ export class Material extends THREE.EventDispatcher<any> {
     }
 
     /**
+      * Gets or sets the main texture map (albedo/diffuse)
+      */
+    get map(): THREE.Texture | null {
+        return this._map;
+    }
+
+    set map(value: THREE.Texture | null) {
+        if (this._map !== value) {
+            this._map = value;
+            this.markDirty();
+        }
+    }
+
+    /**
+      * Gets or sets the normal map texture
+      */
+    get normalMap(): THREE.Texture | null {
+        return this._normalMap;
+    }
+
+    set normalMap(value: THREE.Texture | null) {
+        if (this._normalMap !== value) {
+            this._normalMap = value;
+            this.markDirty();
+        }
+    }
+
+    /**
+      * Gets or sets the roughness map texture
+      */
+    get roughnessMap(): THREE.Texture | null {
+        return this._roughnessMap;
+    }
+
+    set roughnessMap(value: THREE.Texture | null) {
+        if (this._roughnessMap !== value) {
+            this._roughnessMap = value;
+            this.markDirty();
+        }
+    }
+
+    /**
+      * Gets or sets the metalness map texture
+      */
+    get metalnessMap(): THREE.Texture | null {
+        return this._metalnessMap;
+    }
+
+    set metalnessMap(value: THREE.Texture | null) {
+        if (this._metalnessMap !== value) {
+            this._metalnessMap = value;
+            this.markDirty();
+        }
+    }
+
+    /**
       * Gets whether the material has been modified since last clean state
       */
     get isDirty(): boolean {
@@ -159,6 +227,10 @@ export class Material extends THREE.EventDispatcher<any> {
             roughness: this._roughness,
             transparent: this._transparent,
             opacity: this._opacity,
+            map: this._map,
+            normalMap: this._normalMap,
+            roughnessMap: this._roughnessMap,
+            metalnessMap: this._metalnessMap,
         });
     }
 
@@ -172,6 +244,10 @@ export class Material extends THREE.EventDispatcher<any> {
             this._roughness = material.roughness;
             this._transparent = material.transparent;
             this._opacity = material.opacity;
+            this._map = material.map ?? null;
+            this._normalMap = material.normalMap ?? null;
+            this._roughnessMap = material.roughnessMap ?? null;
+            this._metalnessMap = material.metalnessMap ?? null;
             this.markDirty();
         }
     }
