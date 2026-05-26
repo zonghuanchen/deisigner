@@ -104,11 +104,11 @@ export class Scene3DManager {
         this.scene.add(sky);
 
         // Add ambient light for better visibility
-        const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
         this.scene.add(ambientLight);
 
         // Add directional light to illuminate the ground
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
         directionalLight.position.set(10, 20, 10);
         this.scene.add(directionalLight);
 

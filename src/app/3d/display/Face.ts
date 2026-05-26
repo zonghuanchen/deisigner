@@ -56,6 +56,14 @@ export class Face extends DisplayObject3D<FaceModel> {
         const newMaterial = this.model.material.toThreeMaterial();
         newMaterial.side = THREE.DoubleSide;
         
+        // Ensure texture colors are displayed correctly without color filtering
+        // Set color to white so the texture shows its original colors
+        if (newMaterial.map) {
+            newMaterial.color.set(0xffffff);
+            // Enable proper color space for texture display
+            newMaterial.map.colorSpace = THREE.SRGBColorSpace;
+        }
+        
         // Dispose old material
         this.material.dispose();
         
