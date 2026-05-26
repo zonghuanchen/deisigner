@@ -21,7 +21,7 @@ export function App() {
         <div>
             <UIContainer>
                 <div className="p-4 pointer-events-auto">
-                    <h1 className="text-xl font-bold mb-4 text-white">3D家装设计软件</h1>
+                    <h1 className="text-xl font-bold mb-4 text-white">designer</h1>
                     <p className="text-sm text-gray-300">2D视图已固定为右上角浮动窗口</p>
                 </div>
             </UIContainer>
