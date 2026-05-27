@@ -142,15 +142,11 @@ export class Camera2D extends Base2DDisplay{
                 const deltaX = currentGlobalPos.x - this.dragStartPosition.x;
                 const deltaY = currentGlobalPos.y - this.dragStartPosition.y;
                 
-                // Get current zoom scale and pan offset from Scene2D
+                // Convert delta from screen pixels to world coordinates
+                // worldToScreen applies PPU * zoomScale, so invert both here
                 const zoomScale = this.scene2D.getZoomScale();
-                
-                // Convert delta from screen to world coordinates
-                // The stage has been scaled and translated, so we need to:
-                // 1. Divide by zoomScale to account for stage scaling
-                // 2. Divide by PIXELS_PER_UNIT to convert pixels to world units
-                const worldDeltaX = deltaX / (zoomScale * this.PIXELS_PER_UNIT);
-                const worldDeltaY = -deltaY / (zoomScale * this.PIXELS_PER_UNIT); // Invert Y axis
+                const worldDeltaX = deltaX / (this.PIXELS_PER_UNIT * zoomScale);
+                const worldDeltaY = -deltaY / (this.PIXELS_PER_UNIT * zoomScale); // Invert Y axis
                 
                 // Apply delta to the start position
                 if (type === 'position') {

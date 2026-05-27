@@ -46,6 +46,12 @@ export class Scene2D extends THREE.EventDispatcher<any> {
         });
         container.appendChild(this.app.canvas);
         
+        // Bake canvas center into panOffset so world origin starts at canvas center
+        const rect = this.app.canvas.getBoundingClientRect();
+        this.panOffset.x = rect.width / 2;
+        this.panOffset.y = rect.height / 2;
+        this.app.stage.position.set(this.panOffset.x, this.panOffset.y);
+        
         // Setup pan and zoom interactions
         this.setupPanAndZoom();
         
@@ -105,7 +111,7 @@ export class Scene2D extends THREE.EventDispatcher<any> {
             
             this.lastPanPosition = { x: event.clientX, y: event.clientY };
             
-            // Update stage position
+            // Update stage position (panOffset includes canvas center)
             this.app.stage.position.set(this.panOffset.x, this.panOffset.y);
         });
         

@@ -25,22 +25,12 @@ export abstract class Base2DDisplay extends THREE.EventDispatcher<any> {
      * @returns Screen coordinates { x, y }
      */
     protected worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
-        const canvas = this.scene2D.getCanvas();
-        if (!canvas) {
-            return { x: 0, y: 0 };
-        }
-        const rect = canvas.getBoundingClientRect();
-        
-        // Get current zoom and pan from Scene2D
-        const zoomScale = this.scene2D.getZoomScale();
-        const panOffset = this.scene2D.getPanOffset();
-        
-        // Convert world coordinates to screen coordinates
-        // Account for: zoom scale, pan offset, and PIXELS_PER_UNIT
-        const screenX = worldX * this.PIXELS_PER_UNIT * zoomScale + panOffset.x + rect.width / 2;
-        const screenY = -worldY * this.PIXELS_PER_UNIT * zoomScale + panOffset.y + rect.height / 2;
-        
-        return { x: screenX, y: screenY };
+        // Return stage-local coordinates. The stage applies panOffset (including
+        // canvas center) and zoomScale, so children only need the PPU conversion.
+        return {
+            x: worldX * this.PIXELS_PER_UNIT,
+            y: -worldY * this.PIXELS_PER_UNIT,
+        };
     }
 
     /**
