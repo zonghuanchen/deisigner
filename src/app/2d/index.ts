@@ -7,6 +7,7 @@ import { RenderTimer } from '../timer';
 import './display/Camera';
 import './display/Wall';
 import './display/Room';
+import './display/Parametric';
 
 export class Scene2D extends THREE.EventDispatcher<any> {
     private static instance: Scene2D | null = null;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { archToThreeJS } from './archToThreeJS';
 
 /**
  * Calculate normal vector for a polygon using cross product
@@ -105,6 +106,9 @@ export function jscadGeom3ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setIndex(indices);
+
+    // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
+    geometry.applyMatrix4(archToThreeJS);
     
     return geometry;
 }
@@ -163,7 +167,10 @@ export function jscadGeom2ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setIndex(indices);
-    
+
+    // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
+    geometry.applyMatrix4(archToThreeJS);
+
     return geometry;
 }
 
@@ -195,6 +202,114 @@ export function jscadToThreeGeometry(jscadGeometry: any): THREE.BufferGeometry |
     
     // Assume it's geom2
     return jscadGeom2ToThreeGeometry(jscadGeometry);
+}
+
+/**
+ * Converts JSCAD geometry to Three.js BufferGeometry WITHOUT coordinate transformation.
+ * Keeps the original architectural coordinates (Z-up, XY ground plane).
+ * Useful for 2D display where the ground-plane projection is needed directly.
+ * @param jscadGeometry The JSCAD geometry (geom2 or geom3)
+ * @returns Three.js BufferGeometry or null if geometry is invalid
+ */
+export function jscadToRawGeometry(jscadGeometry: any): THREE.BufferGeometry | null {
+    if (!jscadGeometry) {
+        return null;
+    }
+
+    if (jscadGeometry.polygons && Array.isArray(jscadGeometry.polygons)) {
+        try {
+            return jscadGeom3ToRawGeometry(jscadGeometry);
+        } catch (e) {
+            console.warn('Failed to convert as geom3, trying geom2:', e);
+            try {
+                return jscadGeom2ToRawGeometry(jscadGeometry);
+            } catch (e2) {
+                console.error('Failed to convert JSCAD geometry:', e2);
+                return null;
+            }
+        }
+    }
+
+    return jscadGeom2ToRawGeometry(jscadGeometry);
+}
+
+function jscadGeom3ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    const polygons = jscadGeometry.polygons || [];
+
+    const vertices: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+    let indexOffset = 0;
+
+    for (const polygon of polygons) {
+        const polyVertices = polygon.vertices;
+        if (!polyVertices || polyVertices.length < 3) continue;
+
+        const normal = calculateNormal(polygon);
+
+        for (let i = 1; i < polyVertices.length - 1; i++) {
+            const v0 = polyVertices[0];
+            const v1 = polyVertices[i];
+            const v2 = polyVertices[i + 1];
+            if (!v0 || !v1 || !v2) continue;
+
+            vertices.push(v0[0], v0[1], v0[2]);
+            vertices.push(v1[0], v1[1], v1[2]);
+            vertices.push(v2[0], v2[1], v2[2]);
+
+            normals.push(normal[0], normal[1], normal[2]);
+            normals.push(normal[0], normal[1], normal[2]);
+            normals.push(normal[0], normal[1], normal[2]);
+
+            indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
+            indexOffset += 3;
+        }
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setIndex(indices);
+    // No archToThreeJS transform — keeps original Z-up coordinates
+    return geometry;
+}
+
+function jscadGeom2ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry();
+    const outlines = jscadGeometry.sides || [];
+
+    const vertices: number[] = [];
+    const normals: number[] = [];
+    const indices: number[] = [];
+    let indexOffset = 0;
+
+    for (const outline of outlines) {
+        if (!outline || outline.length < 3) continue;
+
+        for (let i = 1; i < outline.length - 1; i++) {
+            const v0 = outline[0];
+            const v1 = outline[i];
+            const v2 = outline[i + 1];
+            if (!v0 || !v1 || !v2) continue;
+
+            vertices.push(v0[0], v0[1], 0);
+            vertices.push(v1[0], v1[1], 0);
+            vertices.push(v2[0], v2[1], 0);
+
+            normals.push(0, 0, 1);
+            normals.push(0, 0, 1);
+            normals.push(0, 0, 1);
+
+            indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
+            indexOffset += 3;
+        }
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setIndex(indices);
+    // No archToThreeJS transform — keeps original Z-up coordinates
+    return geometry;
 }
 
 /**
