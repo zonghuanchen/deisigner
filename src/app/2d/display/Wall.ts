@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as PIXI from 'pixi.js';
 import { WallModel } from '../../../core/model/WallModel';
+import { FaceModel } from '../../../core/model/FaceModel';
 import { Scene2D } from '../index';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { WALL_MODEL } from '../../../core/types';
@@ -8,7 +9,7 @@ import { Base2DDisplay } from './Base2DDisplay';
 
 /**
  * 2D display object for a WallModel.
- * Renders wall as a thick line from 'from' to 'to' with gray fill and black stroke.
+ * Projects all wall faces onto the ground plane (xy) and draws their outlines with stroke.
  */
 export class Wall2D extends Base2DDisplay {
     private wallGraphics!: PIXI.Graphics;
@@ -16,10 +17,10 @@ export class Wall2D extends Base2DDisplay {
     private boundOnWallChange: () => void;
     
     // Visual configuration
-    private readonly WALL_LINE_WIDTH = 4; // Wall thickness in pixels
-    private readonly WALL_COLOR = 0x999999; // Gray for wall body
-    private readonly STROKE_COLOR = 0x000000; // Black for wall edges
-    private readonly STROKE_WIDTH = 1; // Edge stroke width
+    private readonly FILL_COLOR = 0xCCCCCC; // Light gray fill for projection
+    private readonly FILL_ALPHA = 0.3; // Semi-transparent fill
+    private readonly STROKE_COLOR = 0x333333; // Dark gray stroke
+    private readonly STROKE_WIDTH = 1; // Stroke width in pixels
 
     constructor(wallModel: WallModel) {
         super();
@@ -36,64 +37,96 @@ export class Wall2D extends Base2DDisplay {
      * Initialize visual elements after Scene2D is ready
      */
     private initializeVisuals(): void {
-        // Create wall graphics
         this.wallGraphics = new PIXI.Graphics();
         this.scene2D.getStage().addChild(this.wallGraphics);
         
-        // Set initial z-index based on model position
         this.updateZIndex();
-        
-        // Initial render
         this.update();
         
-        // Listen for wall changes
         this.wallModel.addEventListener('change', this.boundOnWallChange);
     }
     
     /**
-     * Update the visual representation based on wall model state
+     * Draw the ground projection of a single face's contour (outer or inner).
+     * Projects 3D vertices to 2D by dropping the z coordinate.
+     */
+    private drawContour(contour: THREE.Vector3[]): { x: number; y: number }[] {
+        if (contour.length < 2) return [];
+        const points: { x: number; y: number }[] = [];
+        for (const v of contour) {
+            points.push(this.worldToScreen(v.x, v.y));
+        }
+        return points;
+    }
+
+    /**
+     * Draw a closed polygon from screen points with optional fill and stroke.
+     */
+    private drawPolygon(
+        points: { x: number; y: number }[],
+        fill: boolean,
+        stroke: boolean
+    ): void {
+        if (points.length < 2) return;
+        this.wallGraphics.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            this.wallGraphics.lineTo(points[i].x, points[i].y);
+        }
+        this.wallGraphics.closePath();
+        if (fill) {
+            this.wallGraphics.fill({ color: this.FILL_COLOR, alpha: this.FILL_ALPHA });
+        }
+        if (stroke) {
+            this.wallGraphics.stroke({
+                color: this.STROKE_COLOR,
+                width: this.STROKE_WIDTH,
+            });
+        }
+    }
+
+    /**
+     * Project a face onto the ground and draw its outline.
+     * Handles both outer contour and inner contours (holes).
+     */
+    private drawFaceProjection(face: FaceModel): void {
+        // Draw outer contour
+        const outerPoints = this.drawContour(face.outerContour);
+        if (outerPoints.length >= 2) {
+            this.drawPolygon(outerPoints, true, true);
+        }
+
+        // Draw inner contours (holes) - stroke only, no fill
+        for (const inner of face.innerContours) {
+            const innerPoints = this.drawContour(inner);
+            if (innerPoints.length >= 2) {
+                this.drawPolygon(innerPoints, false, true);
+            }
+        }
+    }
+
+    /**
+     * Update the visual representation by projecting all wall faces to the ground plane.
      */
     update(): void {
         this.wallGraphics.clear();
         
-        // Check if wall model has valid from and to
         if (!this.wallModel.from || !this.wallModel.to) {
-            console.warn('WallModel from or to is undefined');
             return;
         }
         
-        // Convert world coordinates to screen coordinates
-        const fromScreen = this.worldToScreen(this.wallModel.from.x, this.wallModel.from.y);
-        const toScreen = this.worldToScreen(this.wallModel.to.x, this.wallModel.to.y);
+        // Draw all named faces (left, right, top, bottom, front, back)
+        for (const face of this.wallModel.faces) {
+            this.drawFaceProjection(face);
+        }
+
+        // Draw miter end cap faces and hole reveal faces (children that are FaceModel but not in named faces)
+        const namedFaceIds = new Set(this.wallModel.faces.map(f => f.id));
+        for (const child of this.wallModel.children) {
+            if (child instanceof FaceModel && !namedFaceIds.has(child.id)) {
+                this.drawFaceProjection(child);
+            }
+        }
         
-        // Draw wall body (gray)
-        this.wallGraphics.moveTo(fromScreen.x, fromScreen.y);
-        this.wallGraphics.lineTo(toScreen.x, toScreen.y);
-        this.wallGraphics.stroke({ 
-            color: this.WALL_COLOR, 
-            width: this.WALL_LINE_WIDTH,
-            alignment: 0.5 // Center the stroke on the line
-        });
-        
-        // Draw wall edges (black)
-        this.wallGraphics.moveTo(fromScreen.x, fromScreen.y);
-        this.wallGraphics.lineTo(toScreen.x, toScreen.y);
-        this.wallGraphics.stroke({ 
-            color: this.STROKE_COLOR, 
-            width: this.WALL_LINE_WIDTH + this.STROKE_WIDTH * 2,
-            alignment: 0.5
-        });
-        
-        // Redraw the gray line on top to create the edge effect
-        this.wallGraphics.moveTo(fromScreen.x, fromScreen.y);
-        this.wallGraphics.lineTo(toScreen.x, toScreen.y);
-        this.wallGraphics.stroke({ 
-            color: this.WALL_COLOR, 
-            width: this.WALL_LINE_WIDTH,
-            alignment: 0.5
-        });
-        
-        // Update z-index based on model position
         this.updateZIndex();
     }
     
@@ -101,8 +134,6 @@ export class Wall2D extends Base2DDisplay {
      * Update z-index based on model position.z
      */
     private updateZIndex(): void {
-        // WallModel uses architectural coordinates, position is on xy plane
-        // We'll use a default z value for walls
         const positionZ = (this.wallModel as any).position?.z || 0;
         this.updateDisplayZIndex(this.wallGraphics, positionZ);
     }

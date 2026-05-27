@@ -19,7 +19,7 @@ export class Room2D extends Base2DDisplay {
     // Visual configuration
     private readonly GROUND_COLOR = 0xcccccc; // Light gray for ground
     private readonly BORDER_COLOR = 0x666666; // Darker gray for border
-    private readonly BORDER_WIDTH = 2; // Border width
+    private readonly BORDER_WIDTH = 1; // Border width
 
     constructor(roomModel: RoomModel) {
         super();
