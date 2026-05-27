@@ -87,18 +87,19 @@ export class Room extends DisplayObject3D<RoomModel> {
     private updateFaceVisibility(): void {
         if (!this.activeCamera) return;
 
-        const cameraY = this.activeCamera.position.y;
-        const ceilingY = this.model.height;
-        const groundY = 0;
+        // CameraModel uses architectural coordinates (Z-up)
+        const cameraZ = this.activeCamera.position.z;
+        const ceilingZ = this.model.height;
+        const groundZ = 0;
         
         const groundDisplay = DisplayObject3D.get(this.model.groundFace.id);
         const ceilingDisplay = DisplayObject3D.get(this.model.ceilingFace.id);
 
         if (ceilingDisplay) {
-            ceilingDisplay.node.visible = cameraY <= ceilingY;
+            ceilingDisplay.node.visible = cameraZ <= ceilingZ;
         }
         if (groundDisplay) {
-            groundDisplay.node.visible = cameraY >= groundY;
+            groundDisplay.node.visible = cameraZ >= groundZ;
         }
     }
 

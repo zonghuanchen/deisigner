@@ -3,6 +3,7 @@ import { CameraModel, CameraManager, App } from '../../core';
 import { CameraModelOrbitControls } from './CameraModelOrbitControls';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
+import { toThreeJS } from './util/archToThreeJS';
 import './display/Floor';
 import './display/Wall';
 import './display/Room';
@@ -143,13 +144,14 @@ export class Scene3DManager {
     }
 
     /**
-     * Hides grid and ground when camera is below ground level (y < 0)
+     * Hides grid and ground when camera is below ground level (z < 0 in architectural coordinates)
      */
     private updateGridVisibility() {
         if (!this.cameraModel) return;
         
-        const cameraY = this.cameraModel.position.y;
-        const shouldShow = cameraY >= 0;
+        // CameraModel uses architectural coordinates (Z-up), so check z instead of y
+        const cameraZ = this.cameraModel.position.z;
+        const shouldShow = cameraZ >= 0;
         
         if (this.gridHelper) {
             this.gridHelper.visible = shouldShow;
@@ -162,9 +164,11 @@ export class Scene3DManager {
     private syncCameraFromModel() {
         if (!this.cameraModel) return;
         const m = this.cameraModel;
-        this.camera.position.copy(m.position);
-        this.camera.up.copy(m.up);
-        this.camera.lookAt(m.target);
+        // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
+        this.camera.position.copy(toThreeJS(m.position));
+        this.camera.up.copy(toThreeJS(m.up));
+        const target = toThreeJS(m.target);
+        this.camera.lookAt(target);
         this.camera.fov = m.fov;
         this.camera.aspect = m.aspect;
         this.camera.near = m.near;

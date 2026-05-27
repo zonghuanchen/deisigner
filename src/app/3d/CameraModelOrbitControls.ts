@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CameraModel } from '../../core';
+import { toThreeJS, fromThreeJS } from './util/archToThreeJS';
 
 /**
  * OrbitControls variant that operates on a CameraModel instead of a
@@ -34,8 +35,9 @@ export class CameraModelOrbitControls {
         this.controls.addEventListener('change', () => {
             if (this.isSyncingFromModel) return;
             this.isWritingToModel = true;
-            this.cameraModel.position = this.proxyCamera.position.clone();
-            this.cameraModel.target = this.controls.target.clone();
+            // Convert from Three.js coordinates (Y-up) to architectural coordinates (Z-up)
+            this.cameraModel.position = fromThreeJS(this.proxyCamera.position);
+            this.cameraModel.target = fromThreeJS(this.controls.target);
             this.isWritingToModel = false;
         });
 
@@ -48,16 +50,18 @@ export class CameraModelOrbitControls {
         if (this.isWritingToModel) return;
         this.isSyncingFromModel = true;
         const m = this.cameraModel;
-        this.proxyCamera.position.copy(m.position);
-        this.proxyCamera.up.copy(m.up);
+        // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
+        this.proxyCamera.position.copy(toThreeJS(m.position));
+        this.proxyCamera.up.copy(toThreeJS(m.up));
         this.proxyCamera.fov = m.fov;
         this.proxyCamera.aspect = m.aspect;
         this.proxyCamera.near = m.near;
         this.proxyCamera.far = m.far;
         this.proxyCamera.zoom = m.zoom;
         this.proxyCamera.updateProjectionMatrix();
-        this.controls.target.copy(m.target);
-        this.proxyCamera.lookAt(m.target);
+        const target = toThreeJS(m.target);
+        this.controls.target.copy(target);
+        this.proxyCamera.lookAt(target);
         this.isSyncingFromModel = false;
     }
 

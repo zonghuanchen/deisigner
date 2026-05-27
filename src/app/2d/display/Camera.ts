@@ -184,28 +184,7 @@ export class Camera2D extends Base2DDisplay{
         point.on('pointerupoutside', endDrag);
     }
     
-    /**
-     * Convert screen coordinates to world coordinates
-     * This assumes a top-down 2D view where the camera is looking at the xy plane
-     */
-    private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-        // Get the PixiJS application canvas
-        const canvas = this.scene2D.getCanvas();
-        if (!canvas) {
-            return { x: 0, y: 0 };
-        }
-        const rect = canvas.getBoundingClientRect();
-        
-        // Normalize to canvas coordinates
-        const canvasX = screenX - rect.left;
-        const canvasY = screenY - rect.top;
-        
-        // Convert pixel coordinates to world coordinates
-        const worldX = (canvasX - rect.width / 2) / this.PIXELS_PER_UNIT;
-        const worldY = -(canvasY - rect.height / 2) / this.PIXELS_PER_UNIT; // Invert Y axis
-        
-        return { x: worldX, y: worldY };
-    }
+
     
     /**
      * Update the visual representation based on camera model state

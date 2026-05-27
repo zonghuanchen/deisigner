@@ -8,12 +8,13 @@ import { Base2DDisplay } from './Base2DDisplay';
 
 /**
  * 2D display object for a RoomModel.
- * Renders room ground as a filled polygon based on outerContour with gray color.
+ * Renders room ground face as a filled polygon based on groundFace.outerContour.
  */
 export class Room2D extends Base2DDisplay {
     private roomGraphics!: PIXI.Graphics;
     private roomModel: RoomModel;
     private boundOnRoomChange: () => void;
+    private boundOnGroundChange: () => void;
     
     // Visual configuration
     private readonly GROUND_COLOR = 0xcccccc; // Light gray for ground
@@ -24,6 +25,7 @@ export class Room2D extends Base2DDisplay {
         super();
         this.roomModel = roomModel;
         this.boundOnRoomChange = this.onRoomChange.bind(this);
+        this.boundOnGroundChange = this.onGroundChange.bind(this);
         
         // Wait for Scene2D to be fully initialized before creating visuals
         this.waitForSceneInit(() => {
@@ -47,22 +49,28 @@ export class Room2D extends Base2DDisplay {
         
         // Listen for room changes
         this.roomModel.addEventListener('change', this.boundOnRoomChange);
+        
+        // Listen for ground face changes
+        this.roomModel.groundFace.addEventListener('change', this.boundOnGroundChange);
     }
     
     /**
-     * Update the visual representation based on room model state
+     * Update the visual representation based on room ground face state
      */
     update(): void {
         this.roomGraphics.clear();
         
-        // Check if room has valid outer contour
-        if (!this.roomModel.outerContour || this.roomModel.outerContour.length < 3) {
-            console.warn('RoomModel outerContour is invalid or has less than 3 points');
+        // Get ground face from room model
+        const groundFace = this.roomModel.groundFace;
+        
+        // Check if ground face has valid outer contour
+        if (!groundFace.outerContour || groundFace.outerContour.length < 3) {
+            console.warn('RoomModel groundFace outerContour is invalid or has less than 3 points');
             return;
         }
         
-        // Convert world coordinates to screen coordinates
-        const screenPoints = this.roomModel.outerContour.map(point => 
+        // Convert world coordinates to screen coordinates (use x,y from Vector3)
+        const screenPoints = groundFace.outerContour.map(point => 
             this.worldToScreen(point.x, point.y)
         );
         
@@ -108,10 +116,18 @@ export class Room2D extends Base2DDisplay {
     }
     
     /**
+     * Handle ground face change events
+     */
+    private onGroundChange(): void {
+        this.update();
+    }
+    
+    /**
      * Dispose this 2D room display
      */
     dispose(): void {
         this.roomModel.removeEventListener('change', this.boundOnRoomChange);
+        this.roomModel.groundFace.removeEventListener('change', this.boundOnGroundChange);
         
         if (this.roomGraphics.parent) {
             this.roomGraphics.parent.removeChild(this.roomGraphics);

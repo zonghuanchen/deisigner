@@ -81,7 +81,8 @@ export class CameraModel extends BaseModel {
         this._near = options.near ?? 0.1;
         this._far = options.far ?? 1000;
         this._zoom = options.zoom ?? 1;
-        this._up = (options.up ?? new THREE.Vector3(0, 1, 0)).clone();
+        // In architectural coordinates (Z-up), the up vector is (0, 0, 1)
+        this._up = (options.up ?? new THREE.Vector3(0, 0, 1)).clone();
         this._left = options.left ?? -1;
         this._right = options.right ?? 1;
         this._top = options.top ?? 1;
