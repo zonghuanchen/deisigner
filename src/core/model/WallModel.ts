@@ -311,6 +311,19 @@ export class WallModel extends BaseModel {
         this.dispatchEvent({ type: 'change', wall: this });
     }
 
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            from: { x: this._from.x, y: this._from.y },
+            to: { x: this._to.x, y: this._to.y },
+            width: this._width,
+            height: this._height,
+            holes: this._holes.map(h => ({ ...h })),
+            links: this._links.map(l => ({ wallId: l.wall.id, end: l.end })),
+            faces: Array.from(this._faces.keys()),
+        };
+    }
+
     private updateFaces(): void {
         const from = this._from;
         const to = this._to;

@@ -251,6 +251,26 @@ export class CameraModel extends BaseModel {
         this._isDirty = true;
         this.dispatchEvent({ type: 'change', camera: this });
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            cameraType: this._cameraType,
+            position: { x: this._position.x, y: this._position.y, z: this._position.z },
+            target: { x: this._target.x, y: this._target.y, z: this._target.z },
+            mode: this._mode,
+            fov: this._fov,
+            aspect: this._aspect,
+            near: this._near,
+            far: this._far,
+            zoom: this._zoom,
+            up: { x: this._up.x, y: this._up.y, z: this._up.z },
+            left: this._left,
+            right: this._right,
+            top: this._top,
+            bottom: this._bottom,
+        };
+    }
 }
 
 // Register the model

@@ -138,6 +138,17 @@ export class FloorModel extends BaseModel {
         this._isDirty = true;
         this.dispatchEvent({ type: 'change', floor: this });
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            floorNumber: this._floorNumber,
+            height: this._height,
+            walls: this.walls.map(w => w.id),
+            furnitures: this.furnitures.map(f => f.id),
+            parametrics: this.parametrics.map(p => p.id),
+        };
+    }
 }
 
 // Register the model

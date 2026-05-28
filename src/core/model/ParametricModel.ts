@@ -128,6 +128,16 @@ export class ParametricModel extends BaseModel {
         }
         return ParametricModeler.buildParametricModel(this._params);
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            position: { x: this._position.x, y: this._position.y, z: this._position.z },
+            rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
+            scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
+            params: this._params?.map(p => ({ type: p.type, params: p.params })) ?? [],
+        };
+    }
 }
 
 // Register the model

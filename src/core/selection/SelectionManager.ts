@@ -101,4 +101,13 @@ export class SelectionManager extends THREE.EventDispatcher<any> {
     get count(): number {
         return this._selected.size;
     }
+
+    getUI(): Record<string, any> {
+        const first = this.getFirst();
+        return {
+            count: this._selected.size,
+            selectedIds: Array.from(this._selected.keys()),
+            first: first ? first.getUI() : null,
+        };
+    }
 }

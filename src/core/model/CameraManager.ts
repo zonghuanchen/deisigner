@@ -106,6 +106,15 @@ export class CameraManager extends BaseModel {
     getAvailablePresets(): CameraPreset[] {
         return Array.from(this.cameras.keys());
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            currentPreset: this.currentPreset,
+            activeCamera: this.activeCamera?.id ?? null,
+            availablePresets: this.getAvailablePresets(),
+        };
+    }
 }
 
 // Register the model

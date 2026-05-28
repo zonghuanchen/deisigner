@@ -193,6 +193,18 @@ export class RoomModel extends BaseModel {
         this.dispatchEvent({ type: 'change', room: this });
     }
 
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            outerContour: this._outerContour.map(p => ({ x: p.x, y: p.y })),
+            innerContours: this._innerContours.map(c => c.map(p => ({ x: p.x, y: p.y }))),
+            height: this._height,
+            groundFace: this._groundFace.id,
+            ceilingFace: this._ceilingFace.id,
+            linkWalls: this._linkWalls.map(w => w.id),
+        };
+    }
+
     /**
       * Rebuilds the 3D outer/inner contours of the ground and ceiling faces
       * from the room's 2D outer contour and height.

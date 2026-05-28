@@ -189,6 +189,15 @@ export class FaceModel extends BaseModel {
         this._isDirty = true;
         this.dispatchEvent({ type: 'change', face: this });
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            outerContour: this._outerContour.map(p => ({ x: p.x, y: p.y, z: p.z })),
+            innerContours: this._innerContours.map(c => c.map(p => ({ x: p.x, y: p.y, z: p.z }))),
+            material: this._material.getUI(),
+        };
+    }
 }
 
 // Register the model

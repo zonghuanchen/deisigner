@@ -99,6 +99,13 @@ export abstract class BaseModel extends THREE.EventDispatcher<any> {
     }
 
     /**
+      * Returns UI data for this model. Override in subclasses to provide model-specific UI data.
+      */
+    getUI(): Record<string, any> {
+        return {};
+    }
+
+    /**
       * Generates a unique ID for the model
       */
     private generateId(): string {

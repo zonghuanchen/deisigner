@@ -258,4 +258,20 @@ export class Material extends THREE.EventDispatcher<any> {
     private generateId(): string {
         return `material_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            name: this._name,
+            color: '#' + this._color.getHexString(),
+            metalness: this._metalness,
+            roughness: this._roughness,
+            transparent: this._transparent,
+            opacity: this._opacity,
+            hasMap: this._map !== null,
+            hasNormalMap: this._normalMap !== null,
+            hasRoughnessMap: this._roughnessMap !== null,
+            hasMetalnessMap: this._metalnessMap !== null,
+        };
+    }
 }

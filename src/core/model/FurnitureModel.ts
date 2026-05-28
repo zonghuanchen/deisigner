@@ -123,6 +123,17 @@ export class FurnitureModel extends BaseModel {
         this._isDirty = true;
         this.dispatchEvent({ type: 'change', furniture: this });
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            position: { x: this._position.x, y: this._position.y, z: this._position.z },
+            rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
+            scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
+            size: { x: this._size.x, y: this._size.y, z: this._size.z },
+            gltfPath: this._gltfPath,
+        };
+    }
 }
 
 // Register the model

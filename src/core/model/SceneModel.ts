@@ -149,6 +149,16 @@ export class SceneModel extends BaseModel {
         this._isDirty = true;
         this.dispatchEvent({ type: 'change', scene: this });
     }
+
+    getUI(): Record<string, any> {
+        return {
+            id: this._id,
+            name: this._name,
+            floors: this.floors.map(f => f.id),
+            walls: this.walls.map(w => w.id),
+            rooms: this.rooms.map(r => r.id),
+        };
+    }
 }
 
 // Register the model

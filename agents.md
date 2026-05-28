@@ -26,3 +26,7 @@
 
 ## 3d模型
 为了性能,mesh不要阴影，有明暗和颜色即可
+
+## model数据ui展示
+
+使用`useModelListener`,获取model数据
