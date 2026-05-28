@@ -52,6 +52,11 @@ export abstract class DisplayObject3D<TModel extends BaseModel = BaseModel> {
         return this._node;
     }
 
+    /** The underlying data model for this display object */
+    get modelRef(): TModel {
+        return this.model;
+    }
+
     /**
       * Add a display object to the static map
       */

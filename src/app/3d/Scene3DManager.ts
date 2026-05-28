@@ -1,9 +1,13 @@
 import * as THREE from 'three';
-import { CameraModel, CameraManager, App } from '../../core';
+import { CameraModel, CameraManager, App, SelectionManager } from '../../core';
+import { BaseModel } from '../../core/model/BaseModel';
 import { CameraModelOrbitControls } from './CameraModelOrbitControls';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
 import { toThreeJS } from './util/archToThreeJS';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import './display/Floor';
 import './display/Wall';
 import './display/Room';
@@ -20,6 +24,12 @@ export class Scene3DManager {
     private cameraModel: CameraModel | null = null;
     private gridHelper: THREE.GridHelper | null = null;
     private ground: THREE.Mesh | null = null;
+    private selectionManager: SelectionManager;
+    private composer!: EffectComposer;
+    private outlinePass!: OutlinePass;
+    private raycaster = new THREE.Raycaster();
+    private pointerDown = new THREE.Vector2();
+    private isDragging = false;
 
     /**
       * Gets the singleton instance of Scene3DManager
@@ -119,6 +129,33 @@ export class Scene3DManager {
                 this.scene.add(display.node);
             }
         }
+
+        // Setup selection highlighting
+        this.selectionManager = App.getInstance().getSelectionManager();
+        this.selectionManager.addEventListener('select', (e: any) => this.highlightModel(e.model));
+        this.selectionManager.addEventListener('deselect', (e: any) => this.unhighlightModel(e.model));
+        this.selectionManager.addEventListener('clear', (e: any) => this.unhighlightAll(e.previous));
+    }
+
+    private setupPostProcessing() {
+        const pixelRatio = this.renderer.getPixelRatio();
+        const size = this.renderer.getSize(new THREE.Vector2());
+        const width = Math.floor(size.width * pixelRatio);
+        const height = Math.floor(size.height * pixelRatio);
+
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.setSize(width, height);
+
+        const renderPass = new RenderPass(this.scene, this.camera);
+        this.composer.addPass(renderPass);
+
+        this.outlinePass = new OutlinePass(new THREE.Vector2(width, height), this.scene, this.camera);
+        this.outlinePass.edgeStrength = 3;
+        this.outlinePass.edgeGlow = 0;
+        this.outlinePass.edgeThickness = 1;
+        this.outlinePass.visibleEdgeColor.set(0x44aaff);
+        this.outlinePass.hiddenEdgeColor.set(0x44aaff);
+        this.composer.addPass(this.outlinePass);
     }
 
     private setupCameraModel() {
@@ -194,8 +231,81 @@ export class Scene3DManager {
     }
 
     setRendererContainer(container: HTMLElement) {
+        this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         container.appendChild(this.renderer.domElement);
+
+        // Setup post-processing after renderer has correct size and pixel ratio
+        this.setupPostProcessing();
+        this.setupPicking();
+    }
+
+    private setupPicking() {
+        const domElement = this.renderer.domElement;
+        domElement.addEventListener('pointerdown', (e: PointerEvent) => {
+            this.pointerDown.set(e.clientX, e.clientY);
+            this.isDragging = false;
+        });
+        domElement.addEventListener('pointermove', (e: PointerEvent) => {
+            if (Math.abs(e.clientX - this.pointerDown.x) > 3 || Math.abs(e.clientY - this.pointerDown.y) > 3) {
+                this.isDragging = true;
+            }
+        });
+        domElement.addEventListener('pointerup', (e: PointerEvent) => {
+            if (this.isDragging) return;
+            this.onPointerClick(e);
+        });
+    }
+
+    private onPointerClick(event: PointerEvent) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        this.raycaster.setFromCamera(mouse, this.camera);
+
+        // Collect all pickable objects (exclude grid, ground, skybox)
+        const pickables: THREE.Object3D[] = [];
+        for (const display of DisplayObject3D.getAll()) {
+            if (!(display instanceof Scene) && display.node.visible) {
+                pickables.push(display.node);
+            }
+        }
+
+        const intersects = this.raycaster.intersectObjects(pickables, true)
+            .filter(hit => this.isVisible(hit.object));
+        if (intersects.length > 0) {
+            const display = this.findDisplayObject(intersects[0].object);
+            if (display) {
+                this.selectionManager.select(display.modelRef);
+                return;
+            }
+        }
+        // Clicked empty space — clear selection
+        this.selectionManager.clear();
+    }
+
+    /** Walks up the scene graph to find the DisplayObject3D that owns the given object */
+    private findDisplayObject(object: THREE.Object3D): DisplayObject3D | undefined {
+        let current: THREE.Object3D | null = object;
+        while (current) {
+            for (const display of DisplayObject3D.getAll()) {
+                if (display.node === current) return display;
+            }
+            current = current.parent;
+        }
+        return undefined;
+    }
+
+    /** Returns false if the object or any ancestor is invisible */
+    private isVisible(object: THREE.Object3D): boolean {
+        let current: THREE.Object3D | null = object;
+        while (current) {
+            if (!current.visible) return false;
+            current = current.parent;
+        }
+        return true;
     }
 
     updateControls() {
@@ -204,13 +314,15 @@ export class Scene3DManager {
 
     render() {
         this.controls?.update();
-        this.renderer.render(this.scene, this.camera);
+        this.composer.render();
     }
 
     resize(width: number, height: number) {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
+        const pixelRatio = this.renderer.getPixelRatio();
+        this.composer.setSize(Math.floor(width * pixelRatio), Math.floor(height * pixelRatio));
     }
 
     add(object: THREE.Object3D): void {
@@ -219,5 +331,37 @@ export class Scene3DManager {
 
     remove(object: THREE.Object3D): void {
         this.scene.remove(object);
+    }
+
+    // ── Selection Outline ────────────────────────────────────────────────────
+
+    private highlightModel(model: BaseModel): void {
+        const display = DisplayObject3D.get(model.id);
+        if (!display) return;
+        const meshes: THREE.Mesh[] = [];
+        display.node.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+                meshes.push(child as THREE.Mesh);
+            }
+        });
+        this.outlinePass.selectedObjects.push(...meshes);
+    }
+
+    private unhighlightModel(model: BaseModel): void {
+        const display = DisplayObject3D.get(model.id);
+        if (!display) return;
+        const toRemove = new Set<string>();
+        display.node.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+                toRemove.add(child.uuid);
+            }
+        });
+        this.outlinePass.selectedObjects = this.outlinePass.selectedObjects.filter(
+            obj => !toRemove.has(obj.uuid),
+        );
+    }
+
+    private unhighlightAll(_models: BaseModel[]): void {
+        this.outlinePass.selectedObjects = [];
     }
 }
