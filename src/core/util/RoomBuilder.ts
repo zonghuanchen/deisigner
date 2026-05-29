@@ -143,16 +143,86 @@ export class RoomBuilder {
         const rooms: RoomModel[] = [];
         for (const face of faces) {
             if (face.length < 3) continue;
-            const polygon = face.map(he => nodes[he.fromNode].clone());
+            let polygon = face.map(he => nodes[he.fromNode].clone());
             const area = this.signedArea(polygon);
             if (area <= this.MIN_AREA) continue;
 
             const height = this.resolveRoomHeight(face);
             const linkWalls = this.collectLinkWalls(face);
+            polygon = this.applyWallThicknessOffset(face, nodes);
             rooms.push(new RoomModel(polygon, height, [], linkWalls));
         }
 
         return rooms;
+    }
+
+    /**
+     * Offsets the room polygon inward by half the wall thickness for each edge,
+     * so the floor/ceiling contour aligns with the inner surface of the walls
+     * instead of the wall centerlines.
+     */
+    private static applyWallThicknessOffset(
+        face: HalfEdge[],
+        nodes: THREE.Vector2[]
+    ): THREE.Vector2[] {
+        const n = face.length;
+        const offsetLines: { origin: THREE.Vector2; dir: THREE.Vector2 }[] = [];
+
+        for (const he of face) {
+            const wall = he.wall;
+            const halfWidth = wall.width / 2;
+
+            const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from);
+            wallDir.normalize();
+            const perp = new THREE.Vector2(-wallDir.y, wallDir.x);
+
+            // Room interior is on the left of the half-edge (CCW traversal).
+            // Determine which side of the wall this half-edge traverses.
+            const edgeDir = new THREE.Vector2().subVectors(
+                nodes[he.toNode], nodes[he.fromNode]
+            );
+            const sameAsWall = edgeDir.dot(wallDir) > 0;
+            // If same direction as wall, room is on +perp side;
+            // if opposite, room is on -perp side.
+            const sign = sameAsWall ? 1 : -1;
+
+            const offset = perp.clone().multiplyScalar(halfWidth * sign);
+            const p1 = nodes[he.fromNode].clone().add(offset);
+            const p2 = nodes[he.toNode].clone().add(offset);
+
+            offsetLines.push({
+                origin: p1,
+                dir: new THREE.Vector2().subVectors(p2, p1).normalize()
+            });
+        }
+
+        // Compute new vertices at intersections of consecutive offset lines
+        const result: THREE.Vector2[] = [];
+        for (let i = 0; i < n; i++) {
+            const prev = offsetLines[(i - 1 + n) % n];
+            const curr = offsetLines[i];
+            const intersection = this.lineIntersection(
+                prev.origin, prev.dir, curr.origin, curr.dir
+            );
+            result.push(intersection || nodes[face[i].fromNode].clone());
+        }
+        return result;
+    }
+
+    /**
+     * Finds the intersection point of two lines defined by origin + t * dir.
+     * Returns null if lines are parallel.
+     */
+    private static lineIntersection(
+        o1: THREE.Vector2, d1: THREE.Vector2,
+        o2: THREE.Vector2, d2: THREE.Vector2
+    ): THREE.Vector2 | null {
+        const cross = d1.x * d2.y - d1.y * d2.x;
+        if (Math.abs(cross) < 1e-10) return null;
+        const dx = o2.x - o1.x;
+        const dy = o2.y - o1.y;
+        const t = (dx * d2.y - dy * d2.x) / cross;
+        return new THREE.Vector2(o1.x + t * d1.x, o1.y + t * d1.y);
     }
 
     /**
