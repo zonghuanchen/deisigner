@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { FaceModel } from './FaceModel';
+import { GroundModel } from './GroundModel';
+import { CeilingModel } from './CeilingModel';
 import { WallModel } from './WallModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { ROOM_MODEL } from '../types';
@@ -26,8 +28,8 @@ export class RoomModel extends BaseModel {
     private _outerContour: THREE.Vector2[] = [];
     private _innerContours: THREE.Vector2[][] = [];
     private _height: number;
-    private _groundFace!: FaceModel;
-    private _ceilingFace!: FaceModel;
+    private _groundFace!: GroundModel;
+    private _ceilingFace!: CeilingModel;
     private _linkWalls: WallModel[] = [];
 
     constructor(
@@ -48,8 +50,8 @@ export class RoomModel extends BaseModel {
         this._height = height;
         this._linkWalls = [...linkWalls];
 
-        this._groundFace = new FaceModel();
-        this._ceilingFace = new FaceModel();
+        this._groundFace = new GroundModel();
+        this._ceilingFace = new CeilingModel();
         this.addChild(this._groundFace);
         this.addChild(this._ceilingFace);
 
@@ -111,14 +113,14 @@ export class RoomModel extends BaseModel {
     /**
       * Gets the ground face (floor surface at z = 0)
       */
-    get groundFace(): FaceModel {
+    get groundFace(): GroundModel {
         return this._groundFace;
     }
 
     /**
       * Gets the ceiling face (top surface at z = height)
       */
-    get ceilingFace(): FaceModel {
+    get ceilingFace(): CeilingModel {
         return this._ceilingFace;
     }
 

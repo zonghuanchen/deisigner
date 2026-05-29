@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { App as CoreApp } from '../../core';
 import { useModelListener } from './util/useModelListener';
 import { ParametricModel } from '../../core/model/ParametricModel';
+import { GroundModel } from '../../core/model/GroundModel';
+import { CeilingModel } from '../../core/model/CeilingModel';
+import { Material } from '../../core/material/Material';
 import type { ParametricDef, BooleanOp } from '../../core/util/ParametricModeler';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -13,12 +16,15 @@ const TYPE_LABELS: Record<string, string> = {
     ParametricModel: '参数化模型',
     FaceModel: '面',
     GroundModel: '地面',
-    CeilingModel: '天花板',
+    CeilingModel: '顶面',
     SceneModel: '场景',
     CameraModel: '相机',
 };
 
-function getModelType(obj: Record<string, any>): string {
+function getModelType(obj: Record<string, any>, model?: any): string {
+    // Use instanceof checks for precise type identification
+    if (model instanceof GroundModel) return 'GroundModel';
+    if (model instanceof CeilingModel) return 'CeilingModel';
     // Try to infer type from known keys
     if (obj.from && obj.to) return 'WallModel';
     if (obj.outerContour && obj.height !== undefined && obj.groundFace) return 'RoomModel';
@@ -313,6 +319,176 @@ function TransformSection({ model }: TransformSectionProps) {
     );
 }
 
+const MATERIAL_LABELS: Record<string, string> = {
+    name: '名称',
+    color: '颜色',
+    metalness: '金属度',
+    roughness: '粗糙度',
+    transparent: '透明',
+    opacity: '不透明度',
+    map: '贴图',
+};
+
+const TEXTURE_OPTIONS = Array.from({ length: 6 }, (_, i) => `/assets/material-${i}.jpg`);
+const TEXTURE_KEYS = new Set(['map']);
+
+const textureLoader = new THREE.TextureLoader();
+
+function TexturePicker({
+    currentSrc,
+    onSelect,
+    onClose,
+}: {
+    currentSrc: string | null;
+    onSelect: (src: string) => void;
+    onClose: () => void;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) {
+                onClose();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose]);
+
+    return (
+        <div
+            ref={ref}
+            className="absolute z-50 bg-gray-800 border border-gray-600 rounded-md shadow-lg p-2 grid grid-cols-3 gap-1.5"
+            style={{ minWidth: 140 }}
+        >
+            {TEXTURE_OPTIONS.map(src => (
+                <button
+                    key={src}
+                    className={`w-10 h-10 rounded border-2 overflow-hidden hover:border-blue-400 transition-colors ${
+                        currentSrc === src ? 'border-blue-500' : 'border-gray-600'
+                    }`}
+                    onClick={() => {
+                        onSelect(src);
+                        onClose();
+                    }}
+                    title={src}
+                >
+                    <img src={src} alt={src} className="w-full h-full object-cover" />
+                </button>
+            ))}
+            <button
+                className="w-10 h-10 rounded border-2 border-gray-600 hover:border-red-400 transition-colors flex items-center justify-center text-gray-500 hover:text-red-400 text-xs"
+                onClick={() => {
+                    onSelect('');
+                    onClose();
+                }}
+                title="清除贴图"
+            >
+                ✕
+            </button>
+        </div>
+    );
+}
+
+function MaterialSection({ material, materialModel }: { material: Record<string, any>; materialModel: Material }) {
+    const [open, setOpen] = useState(true);
+    const [pickerKey, setPickerKey] = useState<string | null>(null);
+    const entries = Object.entries(material).filter(([k]) => k !== 'id');
+
+    const handleTextureSelect = useCallback(
+        (key: string, src: string) => {
+            if (!src) {
+                (materialModel as any)[key] = null;
+                return;
+            }
+            textureLoader.load(src, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                texture.name = src.split('/').pop() ?? src;
+                texture.repeat.set(2, 2);  // Tile 2x2 times across the floor
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                (materialModel as any)[key] = texture;
+            });
+        },
+        [materialModel],
+    );
+
+    return (
+        <div className="flex flex-col gap-1 border-b border-gray-700/60 pb-3">
+            <button
+                className="flex items-center gap-1.5 text-left group"
+                onClick={() => setOpen(o => !o)}
+            >
+                <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
+                    {open ? '▾' : '▸'}
+                </span>
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+            </button>
+            {open && (
+                <div className="flex flex-col gap-1.5 ml-1 pl-2 border-l border-gray-700/40">
+                    {entries.map(([key, value]) => (
+                        <div key={key} className="flex items-start gap-2">
+                            <span className="text-[11px] text-gray-500 font-mono shrink-0 w-20">
+                                {MATERIAL_LABELS[key] ?? key}
+                            </span>
+                            {key === 'color' ? (
+                                <div className="flex items-center gap-1.5">
+                                    <span
+                                        className="inline-block w-3 h-3 rounded-sm border border-gray-600"
+                                        style={{ backgroundColor: value }}
+                                    />
+                                    <span className="text-xs text-gray-200 font-mono">{value}</span>
+                                </div>
+                            ) : TEXTURE_KEYS.has(key) ? (
+                                <div className="relative">
+                                    <button
+                                        className="flex flex-col gap-0.5 cursor-pointer group/tex hover:opacity-80 transition-opacity"
+                                        onClick={() => setPickerKey(pickerKey === key ? null : key)}
+                                    >
+                                        {value ? (
+                                            <>
+                                                {value.src && (
+                                                    <img
+                                                        src={value.src}
+                                                        alt={value.name ?? key}
+                                                        className="w-10 h-10 object-cover rounded border border-gray-600 group-hover/tex:border-blue-400 transition-colors"
+                                                    />
+                                                )}
+                                                {value.name && (
+                                                    <span className="text-xs text-gray-300 font-mono truncate max-w-32">
+                                                        {value.name}
+                                                    </span>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span className="w-10 h-10 rounded border border-dashed border-gray-600 group-hover/tex:border-blue-400 flex items-center justify-center text-gray-600 group-hover/tex:text-blue-400 text-lg transition-colors">
+                                                +
+                                            </span>
+                                        )}
+                                    </button>
+                                    {pickerKey === key && (
+                                        <TexturePicker
+                                            currentSrc={value?.src ?? null}
+                                            onSelect={(src) => handleTextureSelect(key, src)}
+                                            onClose={() => setPickerKey(null)}
+                                        />
+                                    )}
+                                </div>
+                            ) : typeof value === 'boolean' ? (
+                                <span className={`text-xs font-mono ${value ? 'text-green-400' : 'text-gray-500'}`}>
+                                    {value ? '是' : '否'}
+                                </span>
+                            ) : (
+                                <span className="text-xs text-gray-200 font-mono">{formatValue(value)}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function SelectionPanel() {
     const selectionManager = CoreApp.getInstance().getSelectionManager();
     const data = useModelListener(selectionManager);
@@ -321,15 +497,22 @@ export function SelectionPanel() {
     const first = data.first ?? null;
     const firstModel = selectionManager.getFirst();
 
+    // Derive material model before early return to satisfy hooks rules
+    const materialModel = (firstModel && 'material' in firstModel && firstModel.material instanceof Material)
+        ? firstModel.material
+        : null;
+    const materialUIData = useModelListener(materialModel, 'change');
+
     if (count === 0 || !first) return null;
 
-    const typeKey = getModelType(first);
+    const typeKey = getModelType(first, firstModel);
     const label = TYPE_LABELS[typeKey] ?? typeKey;
 
     const isParametric = firstModel instanceof ParametricModel;
 
-    // For parametric models, exclude transform and params from the read-only list
-    const excludeKeys = new Set(['id']);
+    // Reactive material data from useModelListener
+    const materialData = Object.keys(materialUIData).length > 0 ? materialUIData : null;
+    const excludeKeys = new Set(['id', 'outerContour', 'innerContours', 'material']);
     if (isParametric) {
         excludeKeys.add('position');
         excludeKeys.add('rotation');
@@ -379,6 +562,13 @@ export function SelectionPanel() {
             {isParametric && firstModel instanceof ParametricModel && (
                 <div className="px-4 py-3">
                     <ParamsSection model={firstModel} />
+                </div>
+            )}
+
+            {/* Material section */}
+            {materialData && materialModel && (
+                <div className="px-4 py-3">
+                    <MaterialSection material={materialData} materialModel={materialModel} />
                 </div>
             )}
 

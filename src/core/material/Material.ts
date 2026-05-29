@@ -259,6 +259,25 @@ export class Material extends THREE.EventDispatcher<any> {
         return `material_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
+    /**
+     * Serializes a THREE.Texture to a UI-friendly object.
+     * Returns null if the texture is not set.
+     */
+    private serializeTexture(texture: THREE.Texture | null): Record<string, any> | null {
+        if (!texture) return null;
+        const result: Record<string, any> = {
+            name: texture.name || null,
+            uuid: texture.uuid,
+        };
+        // Extract image source if available
+        if (texture.image instanceof HTMLImageElement) {
+            result.src = texture.image.src;
+        } else if (texture.image instanceof HTMLCanvasElement) {
+            result.src = texture.image.toDataURL();
+        }
+        return result;
+    }
+
     getUI(): Record<string, any> {
         return {
             id: this._id,
@@ -268,10 +287,7 @@ export class Material extends THREE.EventDispatcher<any> {
             roughness: this._roughness,
             transparent: this._transparent,
             opacity: this._opacity,
-            hasMap: this._map !== null,
-            hasNormalMap: this._normalMap !== null,
-            hasRoughnessMap: this._roughnessMap !== null,
-            hasMetalnessMap: this._metalnessMap !== null,
+            map: this.serializeTexture(this._map),
         };
     }
 }
