@@ -116,22 +116,20 @@ export function setupTestScene(scene: SceneModel): void {
     // Defer parametric model creation to avoid triggering display object creation during construction
     // This prevents infinite loop issues when ModelRegistry creates display objects
     Promise.resolve().then(() => {
-        // Add a parametric cylinder model with a hole
+        // Add a parametric cuboid model with a hole
         const parametricParams: ParametricDef[] = [
             {
-                type: 'cylinder',
+                type: 'cuboid',
                 params: {
-                    radius: 0.5,
-                    height: 3
+                    size: [1, 1, 3]
                 },
                 bool: [
                     {
                         type: 'subtract',
                         shape: {
-                            type: 'cylinder',
+                            type: 'cuboid',
                             params: {
-                                radius: 0.2,
-                                height: 3
+                                size: [0.4, 0.4, 3]
                             }
                         }
                     }
