@@ -30,6 +30,8 @@ export class Scene3DManager {
     private raycaster = new THREE.Raycaster();
     private pointerDown = new THREE.Vector2();
     private isDragging = false;
+    private resizeObserver: ResizeObserver | null = null;
+    private container: HTMLElement | null = null;
 
     /**
       * Gets the singleton instance of Scene3DManager
@@ -207,7 +209,13 @@ export class Scene3DManager {
         const target = toThreeJS(m.target);
         this.camera.lookAt(target);
         this.camera.fov = m.fov;
-        this.camera.aspect = m.aspect;
+        // Always derive aspect from the renderer container, not the model,
+        // to avoid distortion when the model fires change events.
+        if (this.container) {
+            this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+        } else {
+            this.camera.aspect = m.aspect;
+        }
         this.camera.near = m.near;
         this.camera.far = m.far;
         this.camera.zoom = m.zoom;
@@ -231,13 +239,30 @@ export class Scene3DManager {
     }
 
     setRendererContainer(container: HTMLElement) {
+        this.container = container;
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         container.appendChild(this.renderer.domElement);
 
+        // Update camera aspect ratio to match container dimensions
+        if (this.cameraModel) {
+            this.cameraModel.aspect = container.clientWidth / container.clientHeight;
+        }
+
         // Setup post-processing after renderer has correct size and pixel ratio
         this.setupPostProcessing();
         this.setupPicking();
+
+        // Observe container resizes to keep aspect ratio and renderer in sync
+        this.resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const { width, height } = entry.contentRect;
+                if (width > 0 && height > 0) {
+                    this.resize(width, height);
+                }
+            }
+        });
+        this.resizeObserver.observe(container);
     }
 
     private setupPicking() {
@@ -323,6 +348,11 @@ export class Scene3DManager {
         this.renderer.setSize(width, height);
         const pixelRatio = this.renderer.getPixelRatio();
         this.composer.setSize(Math.floor(width * pixelRatio), Math.floor(height * pixelRatio));
+
+        // Keep CameraModel in sync
+        if (this.cameraModel && this.cameraModel.aspect !== this.camera.aspect) {
+            this.cameraModel.aspect = this.camera.aspect;
+        }
     }
 
     add(object: THREE.Object3D): void {
