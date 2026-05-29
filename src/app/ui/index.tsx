@@ -1,5 +1,6 @@
 export { Button } from '@heroui/react';
 export { useModelListener } from './util/useModelListener';
+export { SelectionPanel } from './SelectionPanel';
 
 export const UIContainer = ({ children }: { children: React.ReactNode }) => {
     return (

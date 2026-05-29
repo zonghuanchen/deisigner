@@ -126,7 +126,16 @@ export class ParametricModel extends BaseModel {
         if (!this._params || this._params.length === 0) {
             return null;
         }
-        return ParametricModeler.buildParametricModel(this._params);
+        const geometry = ParametricModeler.buildParametricModel(this._params);
+        if (!geometry) {
+            return null;
+        }
+        return {
+            geometry,
+            position: { x: this._position.x, y: this._position.y, z: this._position.z },
+            rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
+            scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
+        };
     }
 
     getUI(): Record<string, any> {

@@ -140,7 +140,7 @@ export function setupTestScene(scene: SceneModel): void {
         ];
         const parametricModel = new ParametricModel(
             parametricParams,
-            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(2, 0, 1.5),
             new THREE.Euler(0, 0, 0),
             new THREE.Vector3(1, 1, 1)
         );

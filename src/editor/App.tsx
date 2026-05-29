@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppViewer, VIEWER_3D } from '../app';
-import { UIContainer } from '../app/ui';
+import { UIContainer, SelectionPanel } from '../app/ui';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '../core';
 
@@ -20,6 +20,7 @@ export function App() {
     return (
         <div>
             <UIContainer>
+                <SelectionPanel />
                 <div className="p-4 pointer-events-auto">
                     <h1 className="text-xl font-bold mb-4 text-white">designer</h1>
                     <p className="text-sm text-gray-300">2D视图已固定为右上角浮动窗口</p>

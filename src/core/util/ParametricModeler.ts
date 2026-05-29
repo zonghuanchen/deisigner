@@ -26,9 +26,15 @@ export type ParametricDef = {
 };
 
 /**
- * Result type from parametric model building
+ * Result type from parametric model building.
+ * Contains the JSCAD geometry and the model's RTS (rotation, translation, scale).
  */
-export type ParametricResult = any;
+export type ParametricResult = {
+    geometry: any;
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number };
+    scale: { x: number; y: number; z: number };
+};
 
 /**
  * Parametric Modeler using @jscad/modeling
@@ -49,7 +55,7 @@ export class ParametricModeler {
      * @param definitions Array of parametric shape definitions with optional boolean operations
      * @returns The resulting geometry (Geom2 or Geom3)
      */
-    static buildParametricModel(definitions: ParametricDef[]): ParametricResult | null {
+    static buildParametricModel(definitions: ParametricDef[]): any {
         if (!definitions || definitions.length === 0) {
             return null;
         }
@@ -77,7 +83,7 @@ export class ParametricModeler {
      * @param def Shape definition
      * @returns The created geometry
      */
-    private static buildShape(def: ShapeDef): ParametricResult {
+    private static buildShape(def: ShapeDef): any {
         const { type, params } = def;
         
         if (!(type in primitives)) {
@@ -94,7 +100,7 @@ export class ParametricModeler {
      * @param boolOps Array of boolean operations to apply
      * @returns The resulting geometry after all boolean operations
      */
-    private static applyBooleans(base: ParametricResult, boolOps: BooleanOp[]): ParametricResult {
+    private static applyBooleans(base: any, boolOps: BooleanOp[]): any {
         let result = base;
 
         for (const op of boolOps) {

@@ -78,7 +78,7 @@ export class Parametric extends DisplayObject3D<ParametricModel> {
         }
         
         // Convert JSCAD geometry to Three.js geometry
-        const geometry = jscadToThreeGeometry(graphData);
+        const geometry = jscadToThreeGeometry(graphData.geometry);
         
         if (!geometry) {
             this.mesh.visible = false;
