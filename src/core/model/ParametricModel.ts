@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { ParametricModeler, ParametricDef, ParametricResult } from '../util/ParametricModeler';
+import { Material } from '../material/Material';
 import { ModelRegistry } from '../ModelRegistry';
 import { PARAMETRIC_MODEL } from '../types';
 
@@ -33,12 +34,14 @@ export interface ParametricEventMap {
  */
 export class ParametricModel extends BaseModel {
     private _params: ParametricDef[] | null;
+    private _materials: (Material | null)[] = [];
     private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
     private _rotation: THREE.Euler = new THREE.Euler(0, 0, 0);
     private _scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
 
     constructor(
         params: ParametricDef[] | null = null,
+        materials: (Material | null)[] = [],
         position: THREE.Vector3 = new THREE.Vector3(0, 0, 0),
         rotation: THREE.Euler = new THREE.Euler(0, 0, 0),
         scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
@@ -46,9 +49,11 @@ export class ParametricModel extends BaseModel {
     ) {
         super(id, false);
         this._params = params;
+        this._materials = materials;
         this._position = position.clone();
         this._rotation = rotation.clone();
         this._scale = scale.clone();
+        this.bindMaterialListeners();
         this.dispatchCreateModel();
     }
 
@@ -65,6 +70,46 @@ export class ParametricModel extends BaseModel {
     set params(value: ParametricDef[] | null) {
         this._params = value;
         this.dispatchEvent({ type: 'dirty', model: this });
+    }
+
+    /**
+     * Gets the materials array, one per param/geometry
+     */
+    get materials(): (Material | null)[] {
+        return this._materials;
+    }
+
+    /**
+     * Sets the materials array and triggers dirty event
+     */
+    set materials(value: (Material | null)[]) {
+        this.unbindMaterialListeners();
+        this._materials = value;
+        this.bindMaterialListeners();
+        this.dispatchEvent({ type: 'dirty', model: this });
+    }
+
+    /**
+     * Bind change listeners on each material so changes propagate as dirty events
+     */
+    private _onMaterialChange = () => {
+        this.dispatchEvent({ type: 'dirty', model: this });
+    };
+
+    private bindMaterialListeners(): void {
+        for (const mat of this._materials) {
+            if (mat) {
+                mat.addEventListener('change', this._onMaterialChange);
+            }
+        }
+    }
+
+    private unbindMaterialListeners(): void {
+        for (const mat of this._materials) {
+            if (mat) {
+                mat.removeEventListener('change', this._onMaterialChange);
+            }
+        }
     }
 
     /**
@@ -126,12 +171,13 @@ export class ParametricModel extends BaseModel {
         if (!this._params || this._params.length === 0) {
             return null;
         }
-        const geometry = ParametricModeler.buildParametricModel(this._params);
-        if (!geometry) {
+        const geometries = ParametricModeler.buildParametricModel(this._params);
+        if (!geometries || geometries.length === 0) {
             return null;
         }
         return {
-            geometry,
+            geometries,
+            materials: this._materials,
             position: { x: this._position.x, y: this._position.y, z: this._position.z },
             rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
             scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
@@ -145,6 +191,7 @@ export class ParametricModel extends BaseModel {
             rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
             scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
             params: this._params?.map(p => ({ type: p.type, params: p.params, bool: p.bool })) ?? [],
+            materials: this._materials.map(m => m?.getUI() ?? null),
         };
     }
 }

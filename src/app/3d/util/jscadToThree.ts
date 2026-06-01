@@ -6,6 +6,46 @@ import { archToThreeJS } from './archToThreeJS';
  * @param polygon The JSCAD polygon
  * @returns Normal vector as [x, y, z] array
  */
+/**
+ * Compute a UV basis for a polygon face using its normal.
+ * Returns two orthogonal unit vectors (uAxis, vAxis) on the face plane.
+ */
+function computeUVBasis(normal: [number, number, number]): { uAxis: [number, number, number]; vAxis: [number, number, number] } {
+    const [nx, ny, nz] = normal;
+    // Choose the world axis least aligned with the normal to build the basis
+    let refX: number, refY: number, refZ: number;
+    if (Math.abs(nx) < Math.abs(ny) && Math.abs(nx) < Math.abs(nz)) {
+        refX = 1; refY = 0; refZ = 0;
+    } else if (Math.abs(ny) < Math.abs(nz)) {
+        refX = 0; refY = 1; refZ = 0;
+    } else {
+        refX = 0; refY = 0; refZ = 1;
+    }
+    // uAxis = ref × normal (tangent)
+    let ux = refY * nz - refZ * ny;
+    let uy = refZ * nx - refX * nz;
+    let uz = refX * ny - refY * nx;
+    let uLen = Math.sqrt(ux * ux + uy * uy + uz * uz);
+    if (uLen === 0) { ux = 1; uy = 0; uz = 0; uLen = 1; }
+    ux /= uLen; uy /= uLen; uz /= uLen;
+    // vAxis = normal × uAxis (bitangent)
+    const vx = ny * uz - nz * uy;
+    const vy = nz * ux - nx * uz;
+    const vz = nx * uy - ny * ux;
+    return { uAxis: [ux, uy, uz], vAxis: [vx, vy, vz] };
+}
+
+function projectUV(
+    vertex: number[], origin: number[],
+    uAxis: [number, number, number], vAxis: [number, number, number]
+): [number, number] {
+    const dx = vertex[0] - origin[0];
+    const dy = vertex[1] - origin[1];
+    const dz = vertex[2] - origin[2];
+    return [dx * uAxis[0] + dy * uAxis[1] + dz * uAxis[2],
+            dx * vAxis[0] + dy * vAxis[1] + dz * vAxis[2]];
+}
+
 function calculateNormal(polygon: any): [number, number, number] {
     // If polygon already has plane equation, use it directly
     if (polygon.plane) {
@@ -60,6 +100,7 @@ export function jscadGeom3ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     
     const vertices: number[] = [];
     const normals: number[] = [];
+    const uvs: number[] = [];
     const indices: number[] = [];
     let indexOffset = 0;
     
@@ -74,6 +115,8 @@ export function jscadGeom3ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
         
         // Calculate or extract normal
         const normal = calculateNormal(polygon);
+        const { uAxis, vAxis } = computeUVBasis(normal);
+        const origin = polyVertices[0];
         
         // For each polygon, create triangles (fan triangulation)
         for (let i = 1; i < polyVertices.length - 1; i++) {
@@ -97,6 +140,12 @@ export function jscadGeom3ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
             normals.push(normal[0], normal[1], normal[2]);
             normals.push(normal[0], normal[1], normal[2]);
             
+            // Add UVs via planar projection
+            const uv0 = projectUV(v0, origin, uAxis, vAxis);
+            const uv1 = projectUV(v1, origin, uAxis, vAxis);
+            const uv2 = projectUV(v2, origin, uAxis, vAxis);
+            uvs.push(uv0[0], uv0[1], uv1[0], uv1[1], uv2[0], uv2[1]);
+            
             // Add indices
             indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
             indexOffset += 3;
@@ -105,6 +154,7 @@ export function jscadGeom3ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
 
     // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
@@ -126,6 +176,7 @@ export function jscadGeom2ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     
     const vertices: number[] = [];
     const normals: number[] = [];
+    const uvs: number[] = [];
     const indices: number[] = [];
     let indexOffset = 0;
     
@@ -136,6 +187,7 @@ export function jscadGeom2ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
             continue;
         }
         
+        const origin = outline[0];
         // Create a fan triangulation from the first vertex
         for (let i = 1; i < outline.length - 1; i++) {
             const v0 = outline[0];
@@ -158,6 +210,11 @@ export function jscadGeom2ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
             normals.push(0, 0, 1);
             normals.push(0, 0, 1);
             
+            // Add UVs: use x,y directly as UV for 2D shapes
+            uvs.push(v0[0] - origin[0], v0[1] - origin[1]);
+            uvs.push(v1[0] - origin[0], v1[1] - origin[1]);
+            uvs.push(v2[0] - origin[0], v2[1] - origin[1]);
+            
             // Add indices
             indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
             indexOffset += 3;
@@ -166,6 +223,7 @@ export function jscadGeom2ToThreeGeometry(jscadGeometry: any): THREE.BufferGeome
     
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
 
     // Convert from architectural coordinates (Z-up) to Three.js coordinates (Y-up)
@@ -239,6 +297,7 @@ function jscadGeom3ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
 
     const vertices: number[] = [];
     const normals: number[] = [];
+    const uvs: number[] = [];
     const indices: number[] = [];
     let indexOffset = 0;
 
@@ -247,6 +306,8 @@ function jscadGeom3ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
         if (!polyVertices || polyVertices.length < 3) continue;
 
         const normal = calculateNormal(polygon);
+        const { uAxis, vAxis } = computeUVBasis(normal);
+        const origin = polyVertices[0];
 
         for (let i = 1; i < polyVertices.length - 1; i++) {
             const v0 = polyVertices[0];
@@ -262,6 +323,11 @@ function jscadGeom3ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
             normals.push(normal[0], normal[1], normal[2]);
             normals.push(normal[0], normal[1], normal[2]);
 
+            const uv0 = projectUV(v0, origin, uAxis, vAxis);
+            const uv1 = projectUV(v1, origin, uAxis, vAxis);
+            const uv2 = projectUV(v2, origin, uAxis, vAxis);
+            uvs.push(uv0[0], uv0[1], uv1[0], uv1[1], uv2[0], uv2[1]);
+
             indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
             indexOffset += 3;
         }
@@ -269,6 +335,7 @@ function jscadGeom3ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
 
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
     // No archToThreeJS transform — keeps original Z-up coordinates
     return geometry;
@@ -280,12 +347,14 @@ function jscadGeom2ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
 
     const vertices: number[] = [];
     const normals: number[] = [];
+    const uvs: number[] = [];
     const indices: number[] = [];
     let indexOffset = 0;
 
     for (const outline of outlines) {
         if (!outline || outline.length < 3) continue;
 
+        const origin = outline[0];
         for (let i = 1; i < outline.length - 1; i++) {
             const v0 = outline[0];
             const v1 = outline[i];
@@ -300,6 +369,10 @@ function jscadGeom2ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
             normals.push(0, 0, 1);
             normals.push(0, 0, 1);
 
+            uvs.push(v0[0] - origin[0], v0[1] - origin[1]);
+            uvs.push(v1[0] - origin[0], v1[1] - origin[1]);
+            uvs.push(v2[0] - origin[0], v2[1] - origin[1]);
+
             indices.push(indexOffset, indexOffset + 1, indexOffset + 2);
             indexOffset += 3;
         }
@@ -307,6 +380,7 @@ function jscadGeom2ToRawGeometry(jscadGeometry: any): THREE.BufferGeometry {
 
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
     // No archToThreeJS transform — keeps original Z-up coordinates
     return geometry;

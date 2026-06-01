@@ -11,22 +11,19 @@ import { toThreeJS } from '../util/archToThreeJS';
  * Listens to dirty events to rebuild geometry and transformChange events to update mesh transform.
  */
 export class Parametric extends DisplayObject3D<ParametricModel> {
-    private mesh: THREE.Mesh;
-    private material: THREE.Material;
+    private meshes: THREE.Mesh[] = [];
+    private defaultMaterial: THREE.Material;
+    private threeMaterials: THREE.Material[] = [];
 
     constructor(model: ParametricModel) {
         super(model, new THREE.Group());
         
         // Create default material
-        this.material = new THREE.MeshStandardMaterial({
+        this.defaultMaterial = new THREE.MeshStandardMaterial({
             color: 0x888888,
             roughness: 0.7,
             metalness: 0.1
         });
-        
-        // Create initial mesh
-        this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material);
-        (this.node as THREE.Group).add(this.mesh);
         
         // Initial geometry build
         this.updateGeometry();
@@ -47,10 +44,10 @@ export class Parametric extends DisplayObject3D<ParametricModel> {
     }
 
     /**
-     * Gets the underlying THREE.Mesh
+     * Gets the underlying THREE.Mesh array
      */
-    getMesh(): THREE.Mesh {
-        return this.mesh;
+    getMeshes(): THREE.Mesh[] {
+        return this.meshes;
     }
 
     /**
@@ -71,27 +68,43 @@ export class Parametric extends DisplayObject3D<ParametricModel> {
      * Updates the mesh geometry from the model's parametric data
      */
     private updateGeometry(): void {
+        const group = this.node as THREE.Group;
+
+        // Dispose old meshes and materials
+        for (const mesh of this.meshes) {
+            mesh.geometry.dispose();
+            group.remove(mesh);
+        }
+        for (const mat of this.threeMaterials) {
+            mat.dispose();
+        }
+        this.meshes = [];
+        this.threeMaterials = [];
+
         const graphData = this.model.getGraphData();
-        if (!graphData) {
-            this.mesh.visible = false;
+        if (!graphData || graphData.geometries.length === 0) {
             return;
         }
-        
-        // Convert JSCAD geometry to Three.js geometry
-        const geometry = jscadToThreeGeometry(graphData.geometry);
-        
-        if (!geometry) {
-            this.mesh.visible = false;
-            return;
+
+        const materials = graphData.materials;
+        for (let i = 0; i < graphData.geometries.length; i++) {
+            const geom = graphData.geometries[i];
+            const geometry = jscadToThreeGeometry(geom);
+            if (!geometry) continue;
+            geometry.computeBoundingSphere();
+
+            // Use per-geometry material if available, otherwise fallback to default
+            const mat = materials[i]?.toThreeMaterial() ?? this.defaultMaterial;
+            if (materials[i]) {
+                this.threeMaterials.push(mat);
+            }
+
+            const mesh = new THREE.Mesh(geometry, mat);
+            group.add(mesh);
+            this.meshes.push(mesh);
         }
-        
-        // Dispose old geometry
-        this.mesh.geometry.dispose();
-        
-        // Set new geometry
-        this.mesh.geometry = geometry;
-        this.mesh.geometry.computeBoundingSphere();
-        this.mesh.visible = true;
+
+        this.updateTransform();
     }
 
     /**
@@ -103,17 +116,25 @@ export class Parametric extends DisplayObject3D<ParametricModel> {
         const rotation = toThreeJS(this.model.rotation.clone());
         const scale = toThreeJS(this.model.scale.clone());
         
-        this.mesh.position.copy(position);
-        this.mesh.rotation.copy(rotation);
-        this.mesh.scale.copy(scale);
+        // Apply the same transform to all meshes
+        for (const mesh of this.meshes) {
+            mesh.position.copy(position);
+            mesh.rotation.copy(rotation);
+            mesh.scale.copy(scale);
+        }
     }
 
     /**
      * Dispose this parametric display object
      */
     dispose(): void {
-        this.mesh.geometry.dispose();
-        this.material.dispose();
+        for (const mesh of this.meshes) {
+            mesh.geometry.dispose();
+        }
+        for (const mat of this.threeMaterials) {
+            mat.dispose();
+        }
+        this.defaultMaterial.dispose();
         super.dispose();
     }
 }

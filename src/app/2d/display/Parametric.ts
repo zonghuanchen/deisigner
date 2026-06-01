@@ -58,19 +58,7 @@ export class Parametric2D extends Base2DDisplay {
         this.graphics.clear();
 
         const graphData = this.model.getGraphData();
-        if (!graphData) return;
-
-        // Project 3D geometry onto XY ground plane (Z-axis) to get a 2D outline
-        let projected: any;
-        try {
-            projected = extrusions.project({ axis: [0, 0, 1], origin: [0, 0, 0] }, graphData.geometry);
-        } catch {
-            return;
-        }
-        if (!projected || !projected.sides) return;
-
-        const sides: Array<[[number, number], [number, number]]> = projected.sides;
-        if (sides.length === 0) return;
+        if (!graphData || graphData.geometries.length === 0) return;
 
         // Extract RTS for 2D ground-plane transform
         const { position, rotation, scale } = graphData;
@@ -87,37 +75,50 @@ export class Parametric2D extends Base2DDisplay {
             ];
         };
 
-        // Chain sides into closed polygon(s) for fill + stroke
-        const polygons = this.chainSides(sides);
-
-        // Draw each polygon: fill first, then stroke
-        for (const polygon of polygons) {
-            if (polygon.length < 3) continue;
-            const [tx0, ty0] = transformPoint(polygon[0][0], polygon[0][1]);
-            const p0 = this.worldToScreen(tx0, ty0);
-            this.graphics.moveTo(p0.x, p0.y);
-            for (let i = 1; i < polygon.length; i++) {
-                const [tx, ty] = transformPoint(polygon[i][0], polygon[i][1]);
-                const p = this.worldToScreen(tx, ty);
-                this.graphics.lineTo(p.x, p.y);
+        // Process each geometry independently
+        for (const geom of graphData.geometries) {
+            let projected: any;
+            try {
+                projected = extrusions.project({ axis: [0, 0, 1], origin: [0, 0, 0] }, geom);
+            } catch {
+                continue;
             }
-            this.graphics.closePath();
-        }
-        this.graphics.fill({ color: this.FILL_COLOR });
+            if (!projected || !projected.sides) continue;
 
-        for (const polygon of polygons) {
-            if (polygon.length < 3) continue;
-            const [tx0, ty0] = transformPoint(polygon[0][0], polygon[0][1]);
-            const p0 = this.worldToScreen(tx0, ty0);
-            this.graphics.moveTo(p0.x, p0.y);
-            for (let i = 1; i < polygon.length; i++) {
-                const [tx, ty] = transformPoint(polygon[i][0], polygon[i][1]);
-                const p = this.worldToScreen(tx, ty);
-                this.graphics.lineTo(p.x, p.y);
+            const sides: Array<[[number, number], [number, number]]> = projected.sides;
+            if (sides.length === 0) continue;
+
+            const polygons = this.chainSides(sides);
+
+            // Draw each polygon: fill first, then stroke
+            for (const polygon of polygons) {
+                if (polygon.length < 3) continue;
+                const [tx0, ty0] = transformPoint(polygon[0][0], polygon[0][1]);
+                const p0 = this.worldToScreen(tx0, ty0);
+                this.graphics.moveTo(p0.x, p0.y);
+                for (let i = 1; i < polygon.length; i++) {
+                    const [tx, ty] = transformPoint(polygon[i][0], polygon[i][1]);
+                    const p = this.worldToScreen(tx, ty);
+                    this.graphics.lineTo(p.x, p.y);
+                }
+                this.graphics.closePath();
             }
-            this.graphics.closePath();
+            this.graphics.fill({ color: this.FILL_COLOR });
+
+            for (const polygon of polygons) {
+                if (polygon.length < 3) continue;
+                const [tx0, ty0] = transformPoint(polygon[0][0], polygon[0][1]);
+                const p0 = this.worldToScreen(tx0, ty0);
+                this.graphics.moveTo(p0.x, p0.y);
+                for (let i = 1; i < polygon.length; i++) {
+                    const [tx, ty] = transformPoint(polygon[i][0], polygon[i][1]);
+                    const p = this.worldToScreen(tx, ty);
+                    this.graphics.lineTo(p.x, p.y);
+                }
+                this.graphics.closePath();
+            }
+            this.graphics.stroke({ color: this.STROKE_COLOR, width: this.STROKE_WIDTH });
         }
-        this.graphics.stroke({ color: this.STROKE_COLOR, width: this.STROKE_WIDTH });
 
         // Update z-index
         const positionZ = position.z || 0;

@@ -390,6 +390,165 @@ function TexturePicker({
     );
 }
 
+function MaterialItem({ materialModel, label }: { materialModel: Material; label: string }) {
+    const [open, setOpen] = useState(false);
+    const materialData = useModelListener(materialModel, 'change');
+    const [pickerKey, setPickerKey] = useState<string | null>(null);
+    const entries = Object.entries(materialData).filter(([k]) => k !== 'id');
+
+    const handleTextureSelect = useCallback(
+        (key: string, src: string) => {
+            if (!src) {
+                (materialModel as any)[key] = null;
+                return;
+            }
+            textureLoader.load(src, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                texture.name = src.split('/').pop() ?? src;
+                texture.repeat.set(2, 2);
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                (materialModel as any)[key] = texture;
+            });
+        },
+        [materialModel],
+    );
+
+    const handleColorChange = useCallback(
+        (hex: string) => {
+            materialModel.color = hex;
+        },
+        [materialModel],
+    );
+
+    const handleNumericChange = useCallback(
+        (key: string, v: number) => {
+            (materialModel as any)[key] = v;
+        },
+        [materialModel],
+    );
+
+    const handleBoolChange = useCallback(
+        (key: string, v: boolean) => {
+            (materialModel as any)[key] = v;
+        },
+        [materialModel],
+    );
+
+    return (
+        <div className="flex flex-col gap-1">
+            <button
+                className="flex items-center gap-1.5 text-left group"
+                onClick={() => setOpen(o => !o)}
+            >
+                <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
+                    {open ? '▾' : '▸'}
+                </span>
+                <span className="text-[11px] font-semibold text-emerald-400/80">{label}</span>
+                {materialData.color && (
+                    <span
+                        className="inline-block w-2.5 h-2.5 rounded-sm border border-gray-600"
+                        style={{ backgroundColor: materialData.color }}
+                    />
+                )}
+                {materialData.map?.src && (
+                    <img
+                        src={materialData.map.src}
+                        alt=""
+                        className="w-3 h-3 rounded-sm border border-gray-600 object-cover"
+                    />
+                )}
+            </button>
+            {open && (
+                <div className="flex flex-col gap-1.5 ml-1 pl-2 border-l border-gray-700/40">
+                    {entries.map(([key, value]) => (
+                        <div key={key} className="flex items-start gap-2">
+                            <span className="text-[11px] text-gray-500 font-mono shrink-0 w-20">
+                                {MATERIAL_LABELS[key] ?? key}
+                            </span>
+                            {key === 'color' ? (
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type="color"
+                                        value={value ?? '#cccccc'}
+                                        className="w-5 h-5 rounded-sm border border-gray-600 cursor-pointer bg-transparent p-0"
+                                        onChange={e => handleColorChange(e.target.value)}
+                                    />
+                                    <span className="text-xs text-gray-200 font-mono">{value}</span>
+                                </div>
+                            ) : key === 'metalness' || key === 'roughness' || key === 'opacity' ? (
+                                <div className="flex items-center gap-2 flex-1">
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={value ?? 0}
+                                        className="flex-1 h-1 accent-emerald-500 cursor-pointer"
+                                        onChange={e => handleNumericChange(key, parseFloat(e.target.value))}
+                                    />
+                                    <span className="text-xs text-gray-300 font-mono tabular-nums w-8 text-right">
+                                        {Math.round((value ?? 0) * 100) / 100}
+                                    </span>
+                                </div>
+                            ) : TEXTURE_KEYS.has(key) ? (
+                                <div className="relative">
+                                    <button
+                                        className="flex flex-col gap-0.5 cursor-pointer group/tex hover:opacity-80 transition-opacity"
+                                        onClick={() => setPickerKey(pickerKey === key ? null : key)}
+                                    >
+                                        {value ? (
+                                            <>
+                                                {value.src && (
+                                                    <img
+                                                        src={value.src}
+                                                        alt={value.name ?? key}
+                                                        className="w-10 h-10 object-cover rounded border border-gray-600 group-hover/tex:border-blue-400 transition-colors"
+                                                    />
+                                                )}
+                                                {value.name && (
+                                                    <span className="text-xs text-gray-300 font-mono truncate max-w-32">
+                                                        {value.name}
+                                                    </span>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span className="w-10 h-10 rounded border border-dashed border-gray-600 group-hover/tex:border-blue-400 flex items-center justify-center text-gray-600 group-hover/tex:text-blue-400 text-lg transition-colors">
+                                                +
+                                            </span>
+                                        )}
+                                    </button>
+                                    {pickerKey === key && (
+                                        <TexturePicker
+                                            currentSrc={value?.src ?? null}
+                                            onSelect={(src) => handleTextureSelect(key, src)}
+                                            onClose={() => setPickerKey(null)}
+                                        />
+                                    )}
+                                </div>
+                            ) : typeof value === 'boolean' ? (
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={value}
+                                        className="accent-emerald-500"
+                                        onChange={e => handleBoolChange(key, e.target.checked)}
+                                    />
+                                    <span className={`text-xs font-mono ${value ? 'text-green-400' : 'text-gray-500'}`}>
+                                        {value ? '是' : '否'}
+                                    </span>
+                                </label>
+                            ) : (
+                                <span className="text-xs text-gray-200 font-mono">{formatValue(value)}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function MaterialSection({ material, materialModel }: { material: Record<string, any>; materialModel: Material }) {
     const [open, setOpen] = useState(true);
     const [pickerKey, setPickerKey] = useState<string | null>(null);
@@ -509,6 +668,7 @@ export function SelectionPanel() {
     const label = TYPE_LABELS[typeKey] ?? typeKey;
 
     const isParametric = firstModel instanceof ParametricModel;
+    const parametricMaterials = isParametric ? (firstModel as ParametricModel).materials : [];
 
     // Reactive material data from useModelListener
     const materialData = Object.keys(materialUIData).length > 0 ? materialUIData : null;
@@ -518,6 +678,7 @@ export function SelectionPanel() {
         excludeKeys.add('rotation');
         excludeKeys.add('scale');
         excludeKeys.add('params');
+        excludeKeys.add('materials');
     }
     const props = Object.entries(first).filter(([k]) => !excludeKeys.has(k));
 
@@ -562,6 +723,28 @@ export function SelectionPanel() {
             {isParametric && firstModel instanceof ParametricModel && (
                 <div className="px-4 py-3">
                     <ParamsSection model={firstModel} />
+                </div>
+            )}
+
+            {/* Structured materials for ParametricModel */}
+            {isParametric && parametricMaterials.length > 0 && (
+                <div className="px-4 py-3 border-b border-gray-700/60">
+                    <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+                        <span className="text-[11px] text-gray-500 font-mono">{parametricMaterials.length} 个材质</span>
+                        <div className="flex flex-col gap-2 ml-1">
+                            {parametricMaterials.map((mat, i) =>
+                                mat ? (
+                                    <MaterialItem key={mat.id ?? i} materialModel={mat} label={`形状 ${i + 1}`} />
+                                ) : (
+                                    <div key={`null-${i}`} className="flex items-center gap-1.5">
+                                        <span className="text-[11px] font-semibold text-emerald-400/80">形状 {i + 1}</span>
+                                        <span className="text-[11px] text-gray-500 font-mono">无材质</span>
+                                    </div>
+                                ),
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 

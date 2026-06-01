@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SceneModel, FloorModel, WallModel, RoomModel, FurnitureModel, ParametricModel } from '../core';
+import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material } from '../core';
 import { ParametricDef } from '../core/util';
 import { RoomBuilder } from '../core/util';
 
@@ -136,8 +136,16 @@ export function setupTestScene(scene: SceneModel): void {
                 ]
             }
         ];
+        const texture = new THREE.TextureLoader().load('/assets/material-3.jpg');
+        texture.repeat.set(2, 2);  // Tile 2x2 times across the floor
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        const material = new Material({
+            map: texture
+        });
         const parametricModel = new ParametricModel(
             parametricParams,
+            [material],
             new THREE.Vector3(2, 0, 1.5),
             new THREE.Euler(0, 0, 0),
             new THREE.Vector3(1, 1, 1)

@@ -1,4 +1,5 @@
 import { booleans, primitives, transforms } from '@jscad/modeling';
+import type { Material } from '../material/Material';
 
 /**
  * Parametric shape definition without boolean operations
@@ -30,7 +31,8 @@ export type ParametricDef = {
  * Contains the JSCAD geometry and the model's RTS (rotation, translation, scale).
  */
 export type ParametricResult = {
-    geometry: any;
+    geometries: any[];
+    materials: (Material | null)[];
     position: { x: number; y: number; z: number };
     rotation: { x: number; y: number; z: number };
     scale: { x: number; y: number; z: number };
@@ -55,27 +57,18 @@ export class ParametricModeler {
      * @param definitions Array of parametric shape definitions with optional boolean operations
      * @returns The resulting geometry (Geom2 or Geom3)
      */
-    static buildParametricModel(definitions: ParametricDef[]): any {
+    static buildParametricModel(definitions: ParametricDef[]): any[] {
         if (!definitions || definitions.length === 0) {
-            return null;
+            return [];
         }
 
-        // Build the first shape
-        let result = this.buildShape(definitions[0]);
-
-        // Apply boolean operations sequentially
-        for (let i = 1; i < definitions.length; i++) {
-            const def = definitions[i];
-            const shape = this.buildShape(def);
-            result = booleans.union(result, shape);
-        }
-
-        // Apply boolean operations defined in the first shape
-        if (definitions[0].bool && definitions[0].bool.length > 0) {
-            result = this.applyBooleans(result, definitions[0].bool);
-        }
-
-        return result;
+        return definitions.map(def => {
+            let result = this.buildShape(def);
+            if (def.bool && def.bool.length > 0) {
+                result = this.applyBooleans(result, def.bool);
+            }
+            return result;
+        });
     }
 
     /**
