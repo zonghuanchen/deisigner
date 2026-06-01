@@ -74,39 +74,33 @@ export class Face extends DisplayObject3D<FaceModel> {
 
     private updateGeometry(): void {
         const outer = this.model.outerContour;
-        const inners = this.model.innerContours;
         if (!outer || outer.length < 3) {
             this.mesh.visible = false;
             return;
         }
 
-        // Transform from architectural coords (XY ground, Z up) to Three.js coords (XZ ground, Y up)
-        const outer3js = outer.map((p: THREE.Vector3) => toThreeJS(p));
-        const inners3js = inners.map(inner => inner.map((p: THREE.Vector3) => toThreeJS(p)));
-
-        // Compute plane normal and local basis from 3D vertices
-        const normal = this.computeNormal(outer3js);
-        if (!normal) {
+        // Compute UV plane basis and projected contours in architectural coords
+        const uvData = this.model.computeUVData();
+        if (!uvData) {
             this.mesh.visible = false;
             return;
         }
 
-        const origin = outer3js[0];
-        const u = new THREE.Vector3().subVectors(outer3js[1], origin).normalize();
-        const v = new THREE.Vector3().crossVectors(normal, u).normalize();
+        // Convert plane basis from architectural coords to Three.js coords
+        const origin = toThreeJS(uvData.origin);
+        const u = toThreeJS(uvData.uAxis);
+        const v = toThreeJS(uvData.vAxis);
+        const normal = toThreeJS(uvData.normal);
 
-        // Project 3D points onto the local 2D basis (this becomes UV coordinates)
-        const project2D = (p: THREE.Vector3): THREE.Vector2 => {
-            const d = new THREE.Vector3().subVectors(p, origin);
-            return new THREE.Vector2(d.dot(u), d.dot(v));
-        };
-
-        // Build THREE.Shape from projected outer contour
-        const shape = new THREE.Shape(outer3js.map(project2D));
+        // Build THREE.Shape from projected contours (2D coords are basis-relative, coord-system independent)
+        const shape = new THREE.Shape(uvData.outerProjected);
+        const inners3js = this.model.innerContours.map(inner =>
+            inner.map((p: THREE.Vector3) => toThreeJS(p))
+        );
 
         let geometry: THREE.BufferGeometry;
 
-        if (inners3js.length === 0) {
+        if (uvData.innerProjected.length === 0) {
             // Fast path: no holes, use simple ShapeGeometry
             geometry = new THREE.ShapeGeometry(shape);
             geometry.computeVertexNormals();
@@ -123,9 +117,10 @@ export class Face extends DisplayObject3D<FaceModel> {
 
             let resultBrush = new Brush(outerGeometry, this.material);
 
-            for (const inner of inners3js) {
-                if (inner.length >= 3) {
-                    const holeShape = new THREE.Shape(inner.map(project2D));
+            for (let i = 0; i < inners3js.length; i++) {
+                const inner = inners3js[i];
+                if (inner.length >= 3 && uvData.innerProjected[i]) {
+                    const holeShape = new THREE.Shape(uvData.innerProjected[i]);
                     const holeGeometry = new THREE.ExtrudeGeometry(holeShape, extrudeSettings);
                     holeGeometry.translate(0, 0, -depth / 2);
                     const holeBrush = new Brush(holeGeometry, this.material);
@@ -137,62 +132,20 @@ export class Face extends DisplayObject3D<FaceModel> {
             geometry.computeVertexNormals();
         }
 
-        // Set UV coordinates based on world-space projected positions
-        // This ensures textures align properly regardless of mesh origin
-        this.assignUVs(geometry, outer3js, u, v, origin);
-
         // Align mesh with the target plane
         const basisMatrix = new THREE.Matrix4();
         basisMatrix.makeBasis(u, v, normal);
         this.mesh.position.copy(origin);
         this.mesh.quaternion.setFromRotationMatrix(basisMatrix);
 
+        // Assign UV coordinates using the model's plane basis
+        const threeJSUVData = { origin, uAxis: u, vAxis: v, normal, outerProjected: uvData.outerProjected, innerProjected: uvData.innerProjected };
+        this.model.assignUVsToGeometry(geometry, threeJSUVData, this.mesh.quaternion, this.mesh.position);
+
         this.mesh.geometry.dispose();
         this.mesh.geometry = geometry;
         this.mesh.geometry.computeBoundingSphere();
         this.mesh.visible = true;
-    }
-
-    private assignUVs(
-        geometry: THREE.BufferGeometry,
-        vertices: THREE.Vector3[],
-        u: THREE.Vector3,
-        v: THREE.Vector3,
-        origin: THREE.Vector3
-    ): void {
-        const position = geometry.attributes.position;
-        const uvArray: number[] = [];
-
-        for (let i = 0; i < position.count; i++) {
-            const x = position.getX(i);
-            const y = position.getY(i);
-            const z = position.getZ(i);
-
-            // Vertex is already in local space (mesh has been rotated by quaternion)
-            // We need to transform it back to world space to calculate UVs correctly
-            const localVertex = new THREE.Vector3(x, y, z);
-            const worldVertex = localVertex.applyQuaternion(this.mesh.quaternion).add(this.mesh.position);
-
-            // Project world vertex onto u-v basis to get UV coordinates
-            const d = new THREE.Vector3().subVectors(worldVertex, origin);
-            const uvU = d.dot(u);
-            const uvV = d.dot(v);
-
-            uvArray.push(uvU, uvV);
-        }
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvArray, 2));
-    }
-
-    private computeNormal(points: THREE.Vector3[]): THREE.Vector3 | null {
-        for (let i = 2; i < points.length; i++) {
-            const a = new THREE.Vector3().subVectors(points[1], points[0]);
-            const b = new THREE.Vector3().subVectors(points[i], points[0]);
-            const n = new THREE.Vector3().crossVectors(a, b);
-            if (n.lengthSq() > 1e-10) {
-                return n.normalize();
-            }
-        }
-        return null;
     }
 
     /**
