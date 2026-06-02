@@ -20,6 +20,10 @@ export class Scene3D {
         }
     }
 
+    getSceneManager(): Scene3DManager {
+        return this.sceneManager;
+    }
+
     getScene(): THREE.Scene {
         return this.sceneManager.getScene();
     }
