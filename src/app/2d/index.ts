@@ -8,6 +8,7 @@ import './display/Camera';
 import './display/Wall';
 import './display/Room';
 import './display/Parametric';
+import './display/Furniture';
 
 export class Scene2D extends THREE.EventDispatcher<any> {
     private static instance: Scene2D | null = null;
