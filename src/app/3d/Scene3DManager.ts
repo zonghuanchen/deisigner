@@ -8,6 +8,7 @@ import { toThreeJS } from './util/archToThreeJS';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { Device } from './device';
 import './display/Floor';
 import './display/Wall';
 import './display/Room';
@@ -27,9 +28,7 @@ export class Scene3DManager {
     private selectionManager: SelectionManager;
     private composer!: EffectComposer;
     private outlinePass!: OutlinePass;
-    private raycaster = new THREE.Raycaster();
-    private pointerDown = new THREE.Vector2();
-    private isDragging = false;
+    private device: Device | null = null;
     private resizeObserver: ResizeObserver | null = null;
     private container: HTMLElement | null = null;
 
@@ -251,7 +250,7 @@ export class Scene3DManager {
 
         // Setup post-processing after renderer has correct size and pixel ratio
         this.setupPostProcessing();
-        this.setupPicking();
+        this.device = new Device(this.camera, this.renderer.domElement, this.selectionManager);
 
         // Observe container resizes to keep aspect ratio and renderer in sync
         this.resizeObserver = new ResizeObserver((entries) => {
@@ -263,74 +262,6 @@ export class Scene3DManager {
             }
         });
         this.resizeObserver.observe(container);
-    }
-
-    private setupPicking() {
-        const domElement = this.renderer.domElement;
-        domElement.addEventListener('pointerdown', (e: PointerEvent) => {
-            this.pointerDown.set(e.clientX, e.clientY);
-            this.isDragging = false;
-        });
-        domElement.addEventListener('pointermove', (e: PointerEvent) => {
-            if (Math.abs(e.clientX - this.pointerDown.x) > 3 || Math.abs(e.clientY - this.pointerDown.y) > 3) {
-                this.isDragging = true;
-            }
-        });
-        domElement.addEventListener('pointerup', (e: PointerEvent) => {
-            if (this.isDragging) return;
-            this.onPointerClick(e);
-        });
-    }
-
-    private onPointerClick(event: PointerEvent) {
-        const rect = this.renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((event.clientX - rect.left) / rect.width) * 2 - 1,
-            -((event.clientY - rect.top) / rect.height) * 2 + 1,
-        );
-        this.raycaster.setFromCamera(mouse, this.camera);
-
-        // Collect all pickable objects (exclude grid, ground, skybox)
-        const pickables: THREE.Object3D[] = [];
-        for (const display of DisplayObject3D.getAll()) {
-            if (!(display instanceof Scene) && display.node.visible) {
-                pickables.push(display.node);
-            }
-        }
-
-        const intersects = this.raycaster.intersectObjects(pickables, true)
-            .filter(hit => this.isVisible(hit.object));
-        if (intersects.length > 0) {
-            const display = this.findDisplayObject(intersects[0].object);
-            if (display) {
-                this.selectionManager.select(display.modelRef);
-                return;
-            }
-        }
-        // Clicked empty space — clear selection
-        this.selectionManager.clear();
-    }
-
-    /** Walks up the scene graph to find the DisplayObject3D that owns the given object */
-    private findDisplayObject(object: THREE.Object3D): DisplayObject3D | undefined {
-        let current: THREE.Object3D | null = object;
-        while (current) {
-            for (const display of DisplayObject3D.getAll()) {
-                if (display.node === current) return display;
-            }
-            current = current.parent;
-        }
-        return undefined;
-    }
-
-    /** Returns false if the object or any ancestor is invisible */
-    private isVisible(object: THREE.Object3D): boolean {
-        let current: THREE.Object3D | null = object;
-        while (current) {
-            if (!current.visible) return false;
-            current = current.parent;
-        }
-        return true;
     }
 
     updateControls() {

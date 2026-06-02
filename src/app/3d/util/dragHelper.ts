@@ -17,13 +17,9 @@ const _raycaster = new THREE.Raycaster();
 const _mouse = new THREE.Vector2();
 const _plane = new THREE.Plane();
 const _intersection = new THREE.Vector3();
-const _camDir = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 /** Reusable proxy camera built from CameraModel data for raycasting */
 const _proxyCamera = new THREE.PerspectiveCamera();
-
-/** Threshold below which the view is considered too shallow for a horizontal plane */
-const STEEPNESS_THRESHOLD = 0.3;
 
 /**
  * Syncs the internal proxy PerspectiveCamera from a CameraModel.
@@ -42,47 +38,11 @@ function syncProxyCamera(cameraModel: CameraModel): void {
 }
 
 /**
- * Sets up the drag plane adaptively based on the viewing angle.
- *
- * When the camera looks steeply down at the model the horizontal plane
- * gives natural ground-plane dragging.  When the camera is nearly at
- * the same height as the model the horizontal plane becomes unstable
- * (the ray barely intersects it, sending the intersection point to
- * infinity).  In that case a plane perpendicular to the camera
- * direction, passing through the model, is used instead.
- *
- * Must be called before `_raycaster.ray.intersectPlane(...)`.
- */
-function setupDragPlane(
-    modelWorldPos: THREE.Vector3,
-    rayOrigin: THREE.Vector3,
-): void {
-    // Direction from camera to model
-    _camDir.subVectors(modelWorldPos, rayOrigin).normalize();
-
-    // |dot| ≈ 1  → looking steeply down/up  → horizontal plane is ideal
-    // |dot| ≈ 0  → looking nearly sideways   → horizontal plane is unstable
-    const steepness = Math.abs(_camDir.dot(_up));
-
-    if (steepness > STEEPNESS_THRESHOLD) {
-        // Steep enough – use the horizontal plane at the model's height
-        _plane.set(_up, -modelWorldPos.y);
-    } else {
-        // Shallow view – use a plane perpendicular to the view direction,
-        // passing through the model position.  This always gives a stable
-        // intersection regardless of camera height.
-        _plane.setFromNormalAndCoplanarPoint(_camDir, modelWorldPos);
-    }
-}
-
-/**
  * Computes a new model position by casting a ray from the camera through the
- * given screen-space mouse coordinates and intersecting it with an adaptive
- * plane at the model's current position.
+ * given screen-space mouse coordinates and intersecting it with the
+ * horizontal plane (XY) at the model's current height.
  *
- * The drag plane is chosen automatically:
- * - **Steep view** (camera well above/below model) → horizontal plane
- * - **Shallow view** (camera ≈ model height) → view-facing plane
+ * Designed for top-down / overhead viewing angles.
  *
  * Model position is in **architectural coordinates** (XY ground, Z up).
  * Mouse coordinates are **screen pixels** relative to the renderer canvas.
@@ -115,9 +75,9 @@ export function computeDragPosition(
     syncProxyCamera(cameraModel);
     _raycaster.setFromCamera(_mouse, _proxyCamera);
 
-    // Convert model position to Three.js world space for plane setup
+    // Set up horizontal plane (XY) at the model's Y height
     const threePos = toThreeJS(modelPosition);
-    setupDragPlane(threePos, _raycaster.ray.origin);
+    _plane.set(_up, -threePos.y);
 
     if (!_raycaster.ray.intersectPlane(_plane, _intersection)) {
         return null;
@@ -198,9 +158,9 @@ export function computeDragPositionWithOffset(
     syncProxyCamera(cameraModel);
     _raycaster.setFromCamera(_mouse, _proxyCamera);
 
-    // Use the model's full position (not just Z) for adaptive plane setup
+    // Set up horizontal plane (XY) at the model's Y height
     const threePos = toThreeJS(modelPosition);
-    setupDragPlane(threePos, _raycaster.ray.origin);
+    _plane.set(_up, -threePos.y);
 
     if (!_raycaster.ray.intersectPlane(_plane, _intersection)) {
         return null;
