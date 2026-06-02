@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { App as CoreApp } from '../../core';
 import { useModelListener } from './util/useModelListener';
 import { ParametricModel } from '../../core/model/ParametricModel';
+import { FurnitureModel } from '../../core/model/FurnitureModel';
 import { GroundModel } from '../../core/model/GroundModel';
 import { CeilingModel } from '../../core/model/CeilingModel';
 import { Material } from '../../core/material/Material';
@@ -257,17 +258,19 @@ function ParamsSection({ model }: { model: ParametricModel }) {
 }
 
 interface TransformSectionProps {
-    model: ParametricModel;
+    model: ParametricModel | FurnitureModel;
+    event?: string;
 }
 
-function TransformSection({ model }: TransformSectionProps) {
-    // Listen to transformChange to re-render sliders
-    useModelListener(model, 'transformChange');
+function TransformSection({ model, event = 'transformChange' }: TransformSectionProps) {
+    // Listen to transform event to re-render sliders
+    useModelListener(model, event);
 
     const pos = model.position;
     const rot = model.rotation;
     const scl = model.scale;
 
+    // Model layer uses architectural coordinates (XY ground, Z-up)
     const setPos = useCallback(
         (axis: 'x' | 'y' | 'z', v: number) => {
             const p = model.position.clone();
@@ -668,15 +671,19 @@ export function SelectionPanel() {
     const label = TYPE_LABELS[typeKey] ?? typeKey;
 
     const isParametric = firstModel instanceof ParametricModel;
+    const isFurniture = firstModel instanceof FurnitureModel;
+    const hasTransform = isParametric || isFurniture;
     const parametricMaterials = isParametric ? (firstModel as ParametricModel).materials : [];
 
     // Reactive material data from useModelListener
     const materialData = Object.keys(materialUIData).length > 0 ? materialUIData : null;
     const excludeKeys = new Set(['id', 'outerContour', 'innerContours', 'material']);
-    if (isParametric) {
+    if (hasTransform) {
         excludeKeys.add('position');
         excludeKeys.add('rotation');
         excludeKeys.add('scale');
+    }
+    if (isParametric) {
         excludeKeys.add('params');
         excludeKeys.add('materials');
     }
@@ -712,10 +719,13 @@ export function SelectionPanel() {
                 <p className="mt-1 text-xs text-gray-500 font-mono truncate">{first.id}</p>
             </div>
 
-            {/* Transform sliders for ParametricModel */}
-            {isParametric && (
+            {/* Transform sliders for ParametricModel and FurnitureModel */}
+            {hasTransform && (
                 <div className="px-4 py-3">
-                    <TransformSection model={firstModel} />
+                    <TransformSection
+                        model={firstModel as ParametricModel | FurnitureModel}
+                        event={isParametric ? 'transformChange' : 'change'}
+                    />
                 </div>
             )}
 

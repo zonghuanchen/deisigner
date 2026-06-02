@@ -10,10 +10,8 @@ import { AddModelEnvironment, EnvironmentManager } from '../env';
  */
 const GLB_MODELS = [
     { name: 'ABeautifulGame', file: 'ABeautifulGame.glb' },
-    { name: 'DamagedHelmet', file: 'DamagedHelmet.glb' },
     { name: 'IridescenceLamp', file: 'IridescenceLamp.glb' },
     { name: 'MaterialsVariantsShoe', file: 'MaterialsVariantsShoe.glb' },
-    { name: 'PotOfCoals', file: 'PotOfCoals.glb' },
     { name: 'SheenChair', file: 'SheenChair.glb' },
     { name: 'SheenWoodLeatherSofa', file: 'SheenWoodLeatherSofa.glb' },
     { name: 'ToyCar', file: 'ToyCar.glb' },
