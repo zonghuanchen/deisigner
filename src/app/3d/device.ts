@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { App, CameraModel, SelectionManager } from '../../core';
+import { SelectionManager } from '../../core';
 import { FurnitureModel } from '../../core/model/FurnitureModel';
 import { ParametricModel } from '../../core/model/ParametricModel';
 import { DisplayObject3D } from './display/DisplayObject3D';
@@ -28,7 +28,6 @@ export class Device {
     // Drag state
     private dragModel: DraggableModel | null = null;
     private dragOffset: THREE.Vector3 | null = null;
-    private cameraModel: CameraModel | null = null;
 
     constructor(
         camera: THREE.PerspectiveCamera,
@@ -38,12 +37,6 @@ export class Device {
         this.camera = camera;
         this.domElement = domElement;
         this.selectionManager = selectionManager;
-
-        // Get the active CameraModel for drag computations
-        const cameraManager = App.getInstance().getCameraManager();
-        if (cameraManager) {
-            this.cameraModel = cameraManager.getActiveCamera();
-        }
 
         this.setupPicking();
     }
@@ -73,8 +66,6 @@ export class Device {
      * to prevent camera movement from causing a position jump.
      */
     private tryStartDrag(e: PointerEvent): void {
-        if (!this.cameraModel) return;
-
         const rect = this.domElement.getBoundingClientRect();
         const mouse = new THREE.Vector2(
             ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -116,7 +107,7 @@ export class Device {
             e.clientY - rect.top,
             rect.width,
             rect.height,
-            this.cameraModel,
+            this.camera,
         );
         if (!offset) return;
 
@@ -128,7 +119,7 @@ export class Device {
      * While dragging, update the model position based on the current pointer position.
      */
     private updateDrag(e: PointerEvent): void {
-        if (!this.dragModel || !this.dragOffset || !this.cameraModel) return;
+        if (!this.dragModel || !this.dragOffset) return;
 
         const rect = this.domElement.getBoundingClientRect();
         const newPos = computeDragPositionWithOffset(
@@ -138,7 +129,7 @@ export class Device {
             e.clientY - rect.top,
             rect.width,
             rect.height,
-            this.cameraModel,
+            this.camera,
         );
         if (newPos) {
             this.dragModel.position = newPos;

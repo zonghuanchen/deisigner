@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { CameraModel } from '../../../core';
 import { toThreeJS, fromThreeJS } from './archToThreeJS';
 
 /**
@@ -18,43 +17,18 @@ const _mouse = new THREE.Vector2();
 const _plane = new THREE.Plane();
 const _intersection = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
-/** Reusable proxy camera built from CameraModel data for raycasting */
-const _proxyCamera = new THREE.PerspectiveCamera();
-
-/**
- * Syncs the internal proxy PerspectiveCamera from a CameraModel.
- * Converts from architectural coordinates (Z-up) to Three.js coordinates (Y-up).
- */
-function syncProxyCamera(cameraModel: CameraModel): void {
-    _proxyCamera.position.copy(toThreeJS(cameraModel.position));
-    _proxyCamera.up.copy(toThreeJS(cameraModel.up));
-    _proxyCamera.fov = cameraModel.fov;
-    _proxyCamera.aspect = cameraModel.aspect;
-    _proxyCamera.near = cameraModel.near;
-    _proxyCamera.far = cameraModel.far;
-    _proxyCamera.zoom = cameraModel.zoom;
-    _proxyCamera.lookAt(toThreeJS(cameraModel.target));
-    _proxyCamera.updateProjectionMatrix();
-}
 
 /**
  * Computes a new model position by casting a ray from the camera through the
  * given screen-space mouse coordinates and intersecting it with the
  * horizontal plane (XY) at the model's current height.
  *
- * Designed for top-down / overhead viewing angles.
- *
- * Model position is in **architectural coordinates** (XY ground, Z up).
- * Mouse coordinates are **screen pixels** relative to the renderer canvas.
- * The returned position is in **architectural coordinates**, ready to be
- * assigned back to `model.position`.
- *
  * @param modelPosition  Current model position in architectural coordinates
  * @param clientX        Mouse X in screen pixels (relative to canvas)
  * @param clientY        Mouse Y in screen pixels (relative to canvas)
  * @param canvasWidth    Width of the renderer canvas in pixels
  * @param canvasHeight   Height of the renderer canvas in pixels
- * @param cameraModel    The CameraModel (architectural coordinates, Z-up)
+ * @param camera         The actual Three.js PerspectiveCamera (Y-up, world coords)
  * @returns              New position and the raw world intersection point,
  *                       or `null` if the ray does not intersect the plane
  */
@@ -64,7 +38,7 @@ export function computeDragPosition(
     clientY: number,
     canvasWidth: number,
     canvasHeight: number,
-    cameraModel: CameraModel,
+    camera: THREE.PerspectiveCamera,
 ): DragPositionResult | null {
     // Convert screen pixels to NDC (-1 to +1)
     _mouse.set(
@@ -72,10 +46,9 @@ export function computeDragPosition(
         -(clientY / canvasHeight) * 2 + 1,
     );
 
-    syncProxyCamera(cameraModel);
-    _raycaster.setFromCamera(_mouse, _proxyCamera);
+    _raycaster.setFromCamera(_mouse, camera);
 
-    // Set up horizontal plane (XY) at the model's Y height
+    // Set up horizontal plane (XY) at the model's Y height (Three.js coords)
     const threePos = toThreeJS(modelPosition);
     _plane.set(_up, -threePos.y);
 
@@ -102,7 +75,7 @@ export function computeDragPosition(
  * @param clientY        Mouse Y in screen pixels at pointer-down
  * @param canvasWidth    Width of the renderer canvas in pixels
  * @param canvasHeight   Height of the renderer canvas in pixels
- * @param cameraModel    The CameraModel (architectural coordinates, Z-up)
+ * @param camera         The actual Three.js PerspectiveCamera (Y-up, world coords)
  * @returns              Offset vector in architectural coordinates,
  *                       or `null` if the ray does not hit the plane
  */
@@ -112,13 +85,13 @@ export function computeDragOffset(
     clientY: number,
     canvasWidth: number,
     canvasHeight: number,
-    cameraModel: CameraModel,
+    camera: THREE.PerspectiveCamera,
 ): THREE.Vector3 | null {
     const result = computeDragPosition(
         modelPosition,
         clientX, clientY,
         canvasWidth, canvasHeight,
-        cameraModel,
+        camera,
     );
     if (!result) return null;
 
@@ -136,7 +109,7 @@ export function computeDragOffset(
  * @param clientY        Current mouse Y in screen pixels
  * @param canvasWidth    Width of the renderer canvas in pixels
  * @param canvasHeight   Height of the renderer canvas in pixels
- * @param cameraModel    The CameraModel (architectural coordinates, Z-up)
+ * @param camera         The actual Three.js PerspectiveCamera (Y-up, world coords)
  * @returns              New model position in architectural coordinates,
  *                       or `null` if the ray does not hit the plane
  */
@@ -147,7 +120,7 @@ export function computeDragPositionWithOffset(
     clientY: number,
     canvasWidth: number,
     canvasHeight: number,
-    cameraModel: CameraModel,
+    camera: THREE.PerspectiveCamera,
 ): THREE.Vector3 | null {
     // Convert screen pixels to NDC
     _mouse.set(
@@ -155,10 +128,9 @@ export function computeDragPositionWithOffset(
         -(clientY / canvasHeight) * 2 + 1,
     );
 
-    syncProxyCamera(cameraModel);
-    _raycaster.setFromCamera(_mouse, _proxyCamera);
+    _raycaster.setFromCamera(_mouse, camera);
 
-    // Set up horizontal plane (XY) at the model's Y height
+    // Set up horizontal plane (XY) at the model's Y height (Three.js coords)
     const threePos = toThreeJS(modelPosition);
     _plane.set(_up, -threePos.y);
 
