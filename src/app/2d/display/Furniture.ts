@@ -5,27 +5,26 @@ import { FurnitureModel } from '../../../core/model/FurnitureModel';
 import { ModelRegistry } from '../../../core/ModelRegistry';
 import { FURNITURE_MODEL } from '../../../core/types';
 import { Base2DDisplay } from './Base2DDisplay';
-import { toThreeJS } from '../../3d/util/archToThreeJS';
 
 /**
  * 2D display object for a FurnitureModel.
- * Loads the GLTF model and computes a 2D bounding box (top-down view) for performance,
- * instead of extracting the full top-view silhouette.
+ * Loads the GLTF model, computes its 2D bounding box in local space, and renders
+ * as an oriented outline (OBB) that rotates with the model.
  */
 export class Furniture2D extends Base2DDisplay {
     private graphics!: PIXI.Graphics;
     private model: FurnitureModel;
     private loader: GLTFLoader;
     private boundOnChange: () => void;
-    private gltfScene: THREE.Object3D | null = null;
 
-    // Cached 2D AABB in architectural world space [minX, minY, maxX, maxY]
-    private bounds2D: [number, number, number, number] | null = null;
+    // 4 corners of the 2D bounding box in GLTF local architectural XY space
+    private localCorners: Array<[number, number]> = [];
 
     // Visual configuration
-    private readonly DEFAULT_FILL_COLOR = 0x999999;
     private readonly STROKE_COLOR = 0x666666;
     private readonly STROKE_WIDTH = 1;
+    private readonly FILL_COLOR = 0x999999;
+    
 
     constructor(model: FurnitureModel) {
         super();
@@ -49,8 +48,8 @@ export class Furniture2D extends Base2DDisplay {
     }
 
     /**
-     * Load the GLTF and compute the 2D bounding box using the same transform chain
-     * as the 3D display (toThreeJS for position/rotation/scale), then project to architectural XY.
+     * Load the GLTF and compute its 2D bounding box in local architectural XY space.
+     * Three.js (x, y, z) → architectural (x, -z) for top-down projection.
      */
     private loadAndComputeBounds(): void {
         const gltfPath = this.model.gltfPath;
@@ -59,8 +58,16 @@ export class Furniture2D extends Base2DDisplay {
         this.loader.load(
             gltfPath,
             (gltf: any) => {
-                this.gltfScene = gltf.scene;
-                this.computeBounds2D();
+                const box = new THREE.Box3().setFromObject(gltf.scene);
+                // Extract 4 corners of the 2D footprint in local architectural XY
+                // arch_x = three_x, arch_y = -three_z
+                this.localCorners = [
+                    [box.min.x, -box.max.z],
+                    [box.max.x, -box.max.z],
+                    [box.max.x, -box.min.z],
+                    [box.min.x, -box.min.z],
+                ];
+                this.renderBounds();
             },
             undefined,
             (error: any) => {
@@ -70,83 +77,42 @@ export class Furniture2D extends Base2DDisplay {
     }
 
     /**
-     * Compute the 2D AABB by applying the exact same Three.js world transform as the 3D display,
-     * then projecting world-space corners to architectural XY (world_x = three_x, world_y = -three_z).
-     */
-    private computeBounds2D(): void {
-        if (!this.gltfScene) return;
-
-        const { position, rotation, scale } = this.model;
-
-        // Build a temporary group with the same transform as the 3D display
-        const tmpGroup = new THREE.Group();
-        tmpGroup.position.copy(toThreeJS(position));
-        tmpGroup.rotation.copy(toThreeJS(rotation));
-        tmpGroup.scale.copy(toThreeJS(scale));
-        tmpGroup.add(this.gltfScene);
-        tmpGroup.updateMatrixWorld(true);
-
-        // Get the world-space bounding box of the GLTF under this transform
-        const worldBox = new THREE.Box3().setFromObject(this.gltfScene);
-
-        // Clean up
-        tmpGroup.remove(this.gltfScene);
-
-        // Project 8 corners of the Three.js world AABB to architectural XY
-        let minX = Infinity, minY = Infinity;
-        let maxX = -Infinity, maxY = -Infinity;
-        for (const x of [worldBox.min.x, worldBox.max.x]) {
-            for (const z of [worldBox.min.z, worldBox.max.z]) {
-                // Three.js (x, _, z) → architectural (x, -z)
-                const ax = x;
-                const ay = -z;
-                if (ax < minX) minX = ax;
-                if (ax > maxX) maxX = ax;
-                if (ay < minY) minY = ay;
-                if (ay > maxY) maxY = ay;
-            }
-        }
-        this.bounds2D = [minX, minY, maxX, maxY];
-        this.renderBounds();
-    }
-
-    /**
-     * Render the cached 2D AABB to the PIXI graphics.
+     * Render the oriented 2D bounding box (OBB).
+     * Applies scale → rotate (Z) → translate to the cached local corners,
+     * so the outline rotates with the model.
      */
     private renderBounds(): void {
         this.graphics.clear();
-        if (!this.bounds2D) return;
+        if (this.localCorners.length === 0) return;
 
-        const [minX, minY, maxX, maxY] = this.bounds2D;
-        const corners = [
-            this.worldToScreen(minX, minY),
-            this.worldToScreen(maxX, minY),
-            this.worldToScreen(maxX, maxY),
-            this.worldToScreen(minX, maxY),
-        ];
+        const { position, rotation, scale } = this.model;
+        const cosR = Math.cos(rotation.z);
+        const sinR = Math.sin(rotation.z);
 
-        // Draw filled rectangle
-        this.graphics.moveTo(corners[0].x, corners[0].y);
-        for (let i = 1; i < corners.length; i++) {
-            this.graphics.lineTo(corners[i].x, corners[i].y);
-        }
-        this.graphics.closePath();
-        this.graphics.fill({ color: this.DEFAULT_FILL_COLOR });
+        // Transform each local corner: scale → rotate Z → translate
+        const transformed = this.localCorners.map(([lx, ly]): { x: number; y: number } => {
+            const sx = lx * scale.x;
+            const sy = ly * scale.y;
+            const wx = sx * cosR - sy * sinR + position.x;
+            const wy = sx * sinR + sy * cosR + position.y;
+            return this.worldToScreen(wx, wy);
+        });
 
-        // Draw stroke outline
-        this.graphics.moveTo(corners[0].x, corners[0].y);
-        for (let i = 1; i < corners.length; i++) {
-            this.graphics.lineTo(corners[i].x, corners[i].y);
+        // Draw outline
+        this.graphics.moveTo(transformed[0].x, transformed[0].y);
+        for (let i = 1; i < transformed.length; i++) {
+            this.graphics.lineTo(transformed[i].x, transformed[i].y);
         }
         this.graphics.closePath();
         this.graphics.stroke({ color: this.STROKE_COLOR, width: this.STROKE_WIDTH });
+        this.graphics.fill({ color: this.FILL_COLOR });
 
         // Update z-index using model position
-        this.updateDisplayZIndex(this.graphics, this.model.position.z);
+        this.updateDisplayZIndex(this.graphics, position.z);
     }
 
     private onModelChange(): void {
-        this.computeBounds2D();
+        this.renderBounds();
     }
 
     dispose(): void {
