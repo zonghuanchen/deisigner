@@ -478,17 +478,28 @@ export class RoomBuilder {
         };
 
         // 1. Split each intersecting wall at the crossing point(s).
+        let didSplit = false;
         for (const { wall: otherWall, ts } of intersectingMap.values()) {
-            applySplits(otherWall, ts);
+            const segs = applySplits(otherWall, ts);
+            if (segs.length > 1) didSplit = true;
         }
 
         // 2. Split the input wall. If no intersections hit its interior,
         //    return the wall unchanged.
+        let result: WallModel[];
         if (inputSplitTs.length === 0) {
-            return [wall];
+            result = [wall];
+        } else {
+            result = applySplits(wall, inputSplitTs);
+            if (result.length > 1) didSplit = true;
         }
 
-        return applySplits(wall, inputSplitTs);
+        // 3. If any wall was actually split, recompute all links on the floor.
+        if (didSplit) {
+            this.recomputeWallLinks(floor);
+        }
+
+        return result;
     }
 
     /**
