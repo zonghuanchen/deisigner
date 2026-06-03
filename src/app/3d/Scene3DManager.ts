@@ -194,8 +194,8 @@ export class Scene3DManager {
         this.outlinePass.edgeStrength = 3;
         this.outlinePass.edgeGlow = 0;
         this.outlinePass.edgeThickness = 1;
-        this.outlinePass.visibleEdgeColor.set(0x44aaff);
-        this.outlinePass.hiddenEdgeColor.set(0x44aaff);
+        this.outlinePass.visibleEdgeColor.set(0x0066ff);
+        this.outlinePass.hiddenEdgeColor.set(0x0066ff);
         this.composer.addPass(this.outlinePass);
     }
 

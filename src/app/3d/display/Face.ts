@@ -153,7 +153,16 @@ export class Face extends DisplayObject3D<FaceModel> {
      */
     dispose(): void {
         this.mesh.geometry.dispose();
+        // Dispose all textures on the material
+        for (const key of Object.keys(this.material)) {
+            const value = (this.material as any)[key];
+            if (value && value instanceof THREE.Texture) {
+                value.dispose();
+            }
+        }
         this.material.dispose();
+        // Remove mesh from the scene graph so it stops rendering
+        this.mesh.parent?.remove(this.mesh);
         super.dispose();
     }
 }

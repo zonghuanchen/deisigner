@@ -107,15 +107,11 @@ export class SceneModel extends BaseModel {
 
     /**
       * Rebuilds rooms by scanning walls for closed contours.
-      * Existing rooms are removed before the new ones are added.
+      * Existing rooms with the same wall set are updated in-place;
+      * others are removed and replaced with new rooms.
       */
     rebuildRooms(): RoomModel[] {
-        this.clearRooms();
-        const rooms = RoomBuilder.build(this);
-        for (const room of rooms) {
-            this.addRoom(room);
-        }
-        return rooms;
+        return RoomBuilder.rebuild(this);
     }
 
     /**

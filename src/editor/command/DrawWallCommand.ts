@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Command } from './Command';
 import { CommandManager } from './CommandManager';
 import { AppViewer } from '../../app';
-import { WallModel, App as CoreApp } from '../../core';
+import { WallModel, App as CoreApp, RoomBuilder } from '../../core';
 
 /**
  * 画墙命令。
@@ -47,6 +47,11 @@ export class DrawWallCommand implements Command {
         document.body.style.cursor = '';
         this.fromPoint = null;
         this.previewWall = null;
+
+        // Split walls at intersections (T-type / X-type), then rebuild rooms.
+        const scene = CoreApp.getInstance().getScene();
+        RoomBuilder.splitWalls(scene);
+        scene.rebuildRooms();
     }
 
     /** 吸附到现有墙体端点的距离阈值（米） */

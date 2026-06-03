@@ -22,6 +22,8 @@ export abstract class DisplayObject3D<TModel extends BaseModel = BaseModel> {
         // Listen for child model additions/removals
         this.model.addEventListener('addChild', this.onModelAddChild.bind(this));
         this.model.addEventListener('removeChild', this.onModelRemoveChild.bind(this));
+        this.model.addEventListener('dispose', this.dispose.bind(this));
+        
     }
 
     private syncChildren(): void {

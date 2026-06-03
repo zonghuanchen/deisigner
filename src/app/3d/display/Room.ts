@@ -23,6 +23,13 @@ export class Room extends DisplayObject3D<RoomModel> {
     private readonly onActiveCameraChange: () => void;
     private readonly onCameraManagerChange: () => void;
 
+    // Clipping plane adjustment
+    private isCameraInside = false;
+    private savedNear = 0;
+    private savedFar = 0;
+    private clippingInitialized = false;
+    private roomDiagonal = 0;
+
     constructor(model: RoomModel) {
         super(model, new THREE.Group());
         this.childDisplays = new Map();
@@ -41,6 +48,7 @@ export class Room extends DisplayObject3D<RoomModel> {
         // face children are created after the Room display in the RoomModel
         // constructor order.
         this.model.addEventListener('addChild', this.onActiveCameraChange);
+        this.model.addEventListener('dispose', this.dispose);
     }
 
     /**
@@ -76,6 +84,7 @@ export class Room extends DisplayObject3D<RoomModel> {
             this.activeCamera.addEventListener('change', this.onActiveCameraChange);
         }
         this.updateFaceVisibility();
+        this.updateClippingPlanes();
     }
 
     /**
@@ -103,24 +112,147 @@ export class Room extends DisplayObject3D<RoomModel> {
         }
     }
 
+    // ── Clipping Plane Adjustment ──────────────────────────────────────────
+
+    /**
+     * Adjusts camera near/far clipping planes when the camera enters or exits
+     * the room. Inside the room the planes are tightened to reduce z-fighting
+     * with nearby walls and ceiling; outside they are restored to defaults.
+     */
+    private updateClippingPlanes(): void {
+        if (!this.activeCamera) return;
+
+        // Compute room diagonal lazily (only once)
+        if (!this.clippingInitialized) {
+            this.roomDiagonal = this.computeRoomDiagonal();
+            this.clippingInitialized = true;
+        }
+
+        const inside = this.isCameraInsideRoom();
+
+        if (inside && !this.isCameraInside) {
+            // Entering the room — save original clipping and apply tight values
+            this.savedNear = this.activeCamera.near;
+            this.savedFar = this.activeCamera.far;
+            this.activeCamera.near = 0.01;
+            this.activeCamera.far = Math.max(this.roomDiagonal * 2, 20);
+            this.isCameraInside = true;
+        } else if (!inside && this.isCameraInside) {
+            // Exiting the room — restore original clipping
+            this.activeCamera.near = this.savedNear;
+            this.activeCamera.far = this.savedFar;
+            this.isCameraInside = false;
+        }
+    }
+
+    /**
+     * Tests whether the active camera is inside this room's volume:
+     * XY within the outer contour AND Z between ground (0) and ceiling (height).
+     */
+    private isCameraInsideRoom(): boolean {
+        if (!this.activeCamera) return false;
+
+        const pos = this.activeCamera.position;
+        const height = this.model.height;
+
+        // Quick Z-range check (architectural Z-up)
+        if (pos.z < 0 || pos.z > height) return false;
+
+        // Point-in-polygon test on XY plane
+        const contour = this.model.outerContour;
+        if (contour.length < 3) return false;
+        return Room.pointInPolygon(pos.x, pos.y, contour);
+    }
+
+    /**
+     * Ray-casting point-in-polygon test.
+     */
+    private static pointInPolygon(
+        px: number, py: number,
+        polygon: THREE.Vector2[],
+    ): boolean {
+        let inside = false;
+        const n = polygon.length;
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const xi = polygon[i].x, yi = polygon[i].y;
+            const xj = polygon[j].x, yj = polygon[j].y;
+            if ((yi > py) !== (yj > py) &&
+                px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    /**
+     * Computes the room's spatial diagonal from the bounding box of the
+     * outer contour and the room height.
+     */
+    private computeRoomDiagonal(): number {
+        const contour = this.model.outerContour;
+        if (contour.length === 0) return 10;
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        for (const p of contour) {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
+        const dx = maxX - minX;
+        const dy = maxY - minY;
+        const dz = this.model.height;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
     /**
      * Dispose this room and all child display objects
      */
-    dispose(): void {
+    dispose = () => {
         if (this.cameraManager) {
             this.cameraManager.removeEventListener('change', this.onCameraManagerChange);
             this.cameraManager = null;
         }
         if (this.activeCamera) {
+            // Restore clipping planes if camera was inside when disposed
+            if (this.isCameraInside) {
+                this.activeCamera.near = this.savedNear;
+                this.activeCamera.far = this.savedFar;
+            }
             this.activeCamera.removeEventListener('change', this.onActiveCameraChange);
             this.activeCamera = null;
         }
         this.model.removeEventListener('addChild', this.onActiveCameraChange);
+        this.model.removeEventListener('dispose', this.dispose);
 
         for (const [id, display] of this.childDisplays) {
             display.dispose();
         }
         this.childDisplays.clear();
+
+        // Dispose all Three.js GPU resources in the group hierarchy
+        this.group.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+                child.geometry?.dispose();
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                for (const mat of materials) {
+                    if (mat) {
+                        for (const key of Object.keys(mat)) {
+                            const value = (mat as any)[key];
+                            if (value && value instanceof THREE.Texture) {
+                                value.dispose();
+                            }
+                        }
+                        mat.dispose();
+                    }
+                }
+            }
+        });
+
+        // Remove the group from its parent in the scene graph
+        this.group.parent?.remove(this.group);
+
         super.dispose();
     }
 }

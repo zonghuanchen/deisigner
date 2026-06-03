@@ -4,6 +4,7 @@ import { FaceModel } from './FaceModel';
 import { GroundModel } from './GroundModel';
 import { CeilingModel } from './CeilingModel';
 import { WallModel } from './WallModel';
+import { Material } from '../material/Material';
 import { ModelRegistry } from '../ModelRegistry';
 import { ROOM_MODEL } from '../types';
 
@@ -50,7 +51,11 @@ export class RoomModel extends BaseModel {
         this._height = height;
         this._linkWalls = [...linkWalls];
 
-        this._groundFace = new GroundModel();
+        const groundTexture = new THREE.TextureLoader().load('/assets/material-0.jpg');
+        groundTexture.wrapS = THREE.RepeatWrapping;
+        groundTexture.wrapT = THREE.RepeatWrapping;
+        const groundMaterial = new Material({ name: 'Default Floor', map: groundTexture });
+        this._groundFace = new GroundModel([], [], groundMaterial);
         this._ceilingFace = new CeilingModel();
         this.addChild(this._groundFace);
         this.addChild(this._ceilingFace);
@@ -59,6 +64,12 @@ export class RoomModel extends BaseModel {
         
         // Now dispatch the create event so ModelRegistry can create display objects
         this.dispatchCreateModel();
+    }
+
+    public dispose(): void {
+        this._groundFace.dispose();
+        this._ceilingFace.dispose();
+        super.dispose();
     }
 
     /**
