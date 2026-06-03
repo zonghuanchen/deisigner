@@ -959,6 +959,22 @@ export class WallModel extends BaseModel {
     }
 
     /**
+      * Disposes all faces (wall faces, hole reveal faces, miter end caps)
+      * and then disposes this model.
+      */
+    dispose(): void {
+        for (const face of this._faces.values()) {
+            this.removeChild(face);
+        }
+        this._faces.clear();
+
+        this.clearHoleRevealFaces();
+        this.clearMiterEndCaps();
+
+        super.dispose();
+    }
+
+    /**
       * Checks if a furniture model overlaps with this wall and returns hole information if it does.
       * @param furniture - The furniture model to check for overlap
       * @returns WallHole object if there's overlap, null otherwise

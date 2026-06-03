@@ -389,21 +389,106 @@ export class RoomBuilder {
     }
 
     /**
-     * Detects wall intersections (T-type and X-type) across every floor
-     * and splits walls at intersection points:
-     *   - T-type: one wall's body passes through another wall's endpoint →
-     *     the body wall is split into two walls.
-     *   - X-type: two walls cross each other in their interiors →
-     *     both walls are split, producing four walls total.
+     * Splits a single wall at every intersection with other walls on the same
+     * floor, and also splits each intersecting wall at the crossing point.
      *
-     * Returns the total number of splits performed.
+     * - T-type: the input wall's interior passes through another wall's
+     *   endpoint → only the input wall is split.
+     * - T-type (reverse): another wall's interior passes through the input
+     *   wall's endpoint → only the other wall is split.
+     * - X-type: two walls cross in their interiors → both walls are split.
+     *
+     * The original wall (and each intersecting wall) is removed from the
+     * floor and replaced by its sub-segments. Returns the array of new wall
+     * segments that replaced the input wall.
+     *
+     * @param wall  - The wall to check and split.
+     * @param floor - The floor that contains the wall and its sibling walls.
+     * @returns The wall segments that replaced the input wall.
      */
-    static splitWalls(scene: SceneModel): number {
-        let totalSplits = 0;
-        for (const floor of scene.floors) {
-            totalSplits += this.splitWallsOnFloor(floor);
+    static splitWalls(wall: WallModel, floor: FloorModel): WallModel[] {
+        const SPLIT_EPS = 1e-6;
+        const walls = floor.walls;
+
+        // Parametric split values along the input wall
+        const inputSplitTs: number[] = [];
+
+        // Intersecting walls and their split params: otherWall → t-values
+        const intersectingMap = new Map<string, { wall: WallModel; ts: number[] }>();
+
+        for (const other of walls) {
+            if (other.id === wall.id) continue;
+
+            const result = this.segmentIntersection(
+                wall.from, wall.to, other.from, other.to
+            );
+            if (!result) continue;
+
+            const { tA, tB } = result;
+
+            const interiorA = tA > SPLIT_EPS && tA < 1 - SPLIT_EPS;
+            const interiorB = tB > SPLIT_EPS && tB < 1 - SPLIT_EPS;
+
+            if (interiorA) {
+                inputSplitTs.push(tA);
+            }
+            if (interiorB) {
+                if (!intersectingMap.has(other.id)) {
+                    intersectingMap.set(other.id, { wall: other, ts: [] });
+                }
+                intersectingMap.get(other.id)!.ts.push(tB);
+            }
         }
-        return totalSplits;
+
+        // Helper: split a wall at the given parametric values, remove the
+        // original from the floor, and add the sub-segments.
+        const applySplits = (
+            target: WallModel,
+            ts: number[]
+        ): WallModel[] => {
+            const sorted = [...new Set(ts)].sort((a, b) => a - b);
+            const from = target.from.clone();
+            const to = target.to.clone();
+
+            const points: THREE.Vector2[] = [from];
+            for (const t of sorted) {
+                const pt = new THREE.Vector2().lerpVectors(from, to, t);
+                if (pt.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
+                    points.push(pt);
+                }
+            }
+            if (to.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
+                points.push(to);
+            }
+
+            if (points.length < 2) return [target];
+
+            const newWalls: WallModel[] = [];
+            for (let k = 0; k < points.length - 1; k++) {
+                newWalls.push(
+                    new WallModel(points[k], points[k + 1], target.width, target.height)
+                );
+            }
+
+            floor.removeWall(target);
+            for (const nw of newWalls) {
+                floor.addWall(nw);
+            }
+            return newWalls;
+        };
+
+        // 1. Split each intersecting wall at the crossing point(s).
+        for (const { wall: otherWall, ts } of intersectingMap.values()) {
+            applySplits(otherWall, ts);
+        }
+
+        // 2. Split the input wall. If no intersections hit its interior,
+        //    return the wall unchanged.
+        if (inputSplitTs.length === 0) {
+            return [wall];
+        }
+
+        return applySplits(wall, inputSplitTs);
     }
 
     /**

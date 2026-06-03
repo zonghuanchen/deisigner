@@ -50,7 +50,6 @@ export class DrawWallCommand implements Command {
 
         // Split walls at intersections (T-type / X-type), then rebuild rooms.
         const scene = CoreApp.getInstance().getScene();
-        RoomBuilder.splitWalls(scene);
         scene.rebuildRooms();
     }
 
@@ -75,7 +74,17 @@ export class DrawWallCommand implements Command {
             // 第二次点击：确认终点，更新墙体并建立接头
             if (this.previewWall) {
                 this.previewWall.to = point;
-                this.createLinksForWall(this.previewWall);
+                const scene = CoreApp.getInstance().getScene();
+                const floor = scene.defaultFloor;
+                if (floor) {
+                    // Split the wall at intersections, then create miter links for each segment
+                    const segments = RoomBuilder.splitWalls(this.previewWall, floor);
+                    for (const seg of segments) {
+                        this.createLinksForWall(seg);
+                    }
+                } else {
+                    this.createLinksForWall(this.previewWall);
+                }
             }
             CommandManager.getInstance().completeCurrent();
         }
