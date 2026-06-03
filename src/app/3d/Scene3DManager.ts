@@ -23,7 +23,7 @@ export class Scene3DManager {
     private controls!: CameraModelOrbitControls;
     private renderer: THREE.WebGLRenderer;
     private cameraModel: CameraModel | null = null;
-    private gridHelper: THREE.GridHelper | null = null;
+    private gridPlane: THREE.Mesh | null = null;
     private ground: THREE.Mesh | null = null;
     private selectionManager: SelectionManager;
     private composer!: EffectComposer;
@@ -69,29 +69,69 @@ export class Scene3DManager {
             this.controls.maxDistance = 50;
         }
 
-        // Add light gray grid floor (below ground plane)
-        this.gridHelper = new THREE.GridHelper(32, 32, 0xcccccc, 0xdddddd);
-        this.gridHelper.position.y = -0.01;
-        this.scene.add(this.gridHelper);
+        // Add light gray grid floor using a custom shader plane (supports thick lines)
+        const gridSize = 256;
+        const gridDivisions = 32;
+        const gridGeo = new THREE.PlaneGeometry(gridSize, gridSize);
+        const gridMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uSize: { value: gridSize },
+                uDivisions: { value: gridDivisions },
+                uLineWidth: { value: 1.0 },      // thickness in pixels
+                uColorMajor: { value: new THREE.Color(0xbbbbbb) },
+                uColorMinor: { value: new THREE.Color(0xdddddd) },
+                uBgColor: { value: new THREE.Color(0xeeeeee) },
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float uSize;
+                uniform float uDivisions;
+                uniform float uLineWidth;
+                uniform vec3 uColorMajor;
+                uniform vec3 uColorMinor;
+                uniform vec3 uBgColor;
+                varying vec2 vUv;
 
-        // Add large white ground plane
-        const groundGeometry = new THREE.PlaneGeometry(100, 100);
-        const groundMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0xeeeeee,
-            metalness: 0.1,
-            roughness: 1,
+                float gridLine(float coord, float divisions, float lineWidth) {
+                    float grid = abs(fract(coord * divisions - 0.5) - 0.5) / fwidth(coord * divisions);
+                    return 1.0 - min(grid / lineWidth, 1.0);
+                }
+
+                void main() {
+                    float cellSize = uSize / uDivisions;
+                    // Minor grid (every division)
+                    float minor = gridLine(vUv.x, uDivisions, uLineWidth)
+                                + gridLine(vUv.y, uDivisions, uLineWidth);
+                    // Major grid (every 5 divisions)
+                    float majorDiv = uDivisions / 5.0;
+                    float major = gridLine(vUv.x, majorDiv, uLineWidth * 1.5)
+                                + gridLine(vUv.y, majorDiv, uLineWidth * 1.5);
+                    minor = clamp(minor, 0.0, 1.0);
+                    major = clamp(major, 0.0, 1.0);
+                    vec3 color = mix(uBgColor, uColorMinor, minor);
+                    color = mix(color, uColorMajor, major);
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `,
         });
-        this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        this.ground.rotation.x = -Math.PI / 2;
-        this.ground.position.y = -0.01;
-        this.scene.add(this.ground);
+        const gridPlane = new THREE.Mesh(gridGeo, gridMat);
+        gridPlane.rotation.x = -Math.PI / 2;
+        gridPlane.position.y = -0.005;
+        this.gridPlane = gridPlane;
+        this.scene.add(gridPlane);        
 
         // Add blue skybox with gradient (hemisphere above ground only, matching grid size)
-        const skyGeo = new THREE.SphereGeometry(16, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
+        const skyGeo = new THREE.SphereGeometry(128, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
         const skyMat = new THREE.ShaderMaterial({
             uniforms: {
                 topColor: { value: new THREE.Color(0xc0ddff) }, // Even lighter blue at top
-                bottomColor: { value: new THREE.Color(0xe1f3fa) } // Even lighter blue at horizon
+                bottomColor: { value: new THREE.Color(0xffffff) } // Even lighter blue at horizon
             },
             vertexShader: `
                 varying vec3 vWorldPosition;
@@ -191,8 +231,8 @@ export class Scene3DManager {
         const cameraZ = this.cameraModel.position.z;
         const shouldShow = cameraZ >= 0;
         
-        if (this.gridHelper) {
-            this.gridHelper.visible = shouldShow;
+        if (this.gridPlane) {
+            this.gridPlane.visible = shouldShow;
         }
         if (this.ground) {
             this.ground.visible = shouldShow;

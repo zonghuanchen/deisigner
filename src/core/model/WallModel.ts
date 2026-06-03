@@ -261,18 +261,37 @@ export class WallModel extends BaseModel {
     }
 
     /**
-      * Links this wall to an adjacent wall at a specific end
+      * Links this wall to an adjacent wall.
+      * If end is not provided, it is auto-computed by determining which
+      * endpoint of this wall (from/to) is closest to the linked wall.
       */
-    addLink(link: WallLink): void {
+    addLink(link: Omit<WallLink, 'end'> & { end?: 'from' | 'to' }): void {
+        const end = link.end ?? this.computeLinkEnd(link.wall);
         const existing = this._links.find(
-            l => l.wall.id === link.wall.id && l.end === link.end
+            l => l.wall.id === link.wall.id && l.end === end
         );
         if (existing) {
-            console.warn(`Link to wall '${link.wall.id}' at '${link.end}' already exists.`);
+            console.warn(`Link to wall '${link.wall.id}' at '${end}' already exists.`);
             return;
         }
-        this._links.push({ ...link });
+        this._links.push({ wall: link.wall, end });
         this.dirty();
+    }
+
+    /**
+     * Determines which endpoint of this wall is closest to the given wall.
+     * Returns 'from' if this wall's start point is nearer, 'to' otherwise.
+     */
+    private computeLinkEnd(otherWall: WallModel): 'from' | 'to' {
+        const fromMinDist = Math.min(
+            this._from.distanceTo(otherWall.from),
+            this._from.distanceTo(otherWall.to)
+        );
+        const toMinDist = Math.min(
+            this._to.distanceTo(otherWall.from),
+            this._to.distanceTo(otherWall.to)
+        );
+        return fromMinDist <= toMinDist ? 'from' : 'to';
     }
 
     /**

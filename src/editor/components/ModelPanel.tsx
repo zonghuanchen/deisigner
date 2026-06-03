@@ -18,7 +18,7 @@ const GLB_MODELS = [
     { name: 'Door Model', file: 'door-model.glb' },
 ];
 
-type TabKey = 'models';
+type TabKey = 'models' | 'bim';
 
 interface TabDef {
     key: TabKey;
@@ -27,6 +27,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
     { key: 'models', label: '模型列表' },
+    { key: 'bim', label: 'BIM' },
 ];
 
 /**
@@ -42,6 +43,11 @@ export function ModelPanel() {
     const hasSelection = (selectionData.count ?? 0) > 0;
     // SelectionPanel is w-72 (18rem); offset the left edge when it is visible
     const leftOffset = hasSelection ? 'left-72' : 'left-0';
+
+    const handleDrawWall = useCallback(() => {
+        const cmdManager = CommandManager.getInstance();
+        cmdManager.execute('drawWall');
+    }, []);
 
     const handleAddModel = useCallback((file: string) => {
         const scene = CoreApp.getInstance().getScene();
@@ -121,6 +127,9 @@ export function ModelPanel() {
                 {activeTab === 'models' && (
                     <ModelListTab models={GLB_MODELS} onAdd={handleAddModel} />
                 )}
+                {activeTab === 'bim' && (
+                    <BimTab onDrawWall={handleDrawWall} />
+                )}
             </div>
         </div>
     );
@@ -129,6 +138,25 @@ export function ModelPanel() {
 interface ModelItem {
     name: string;
     file: string;
+}
+
+function BimTab({ onDrawWall }: { onDrawWall: () => void }) {
+    return (
+        <div className="flex items-stretch gap-2 p-2 h-full min-w-min">
+            <div
+                className="flex flex-col items-center gap-1 px-2 py-1 rounded hover:bg-gray-800/60 group transition-colors cursor-pointer shrink-0 w-16"
+                onClick={onDrawWall}
+                title="画墙"
+            >
+                <div className="w-10 h-10 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 group-hover:border-blue-500 transition-colors">
+                    <span className="text-[10px] text-gray-500 font-mono">墙</span>
+                </div>
+                <span className="text-[10px] text-gray-400 truncate w-full text-center group-hover:text-white transition-colors">
+                    墙体
+                </span>
+            </div>
+        </div>
+    );
 }
 
 function ModelListTab({ models, onAdd }: { models: ModelItem[]; onAdd: (file: string) => void }) {
