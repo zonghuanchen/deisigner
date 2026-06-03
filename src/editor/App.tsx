@@ -4,7 +4,7 @@ import { UIContainer, SelectionPanel } from '../app/ui';
 import { ModelPanel } from './components';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '../core';
-import { AddModelEnvironment, EnvironmentManager } from './env';
+import { AddModelCommand, DrawWallCommand, CommandManager } from './command';
 
 export const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
 viewer.init(
@@ -16,9 +16,10 @@ viewer.init(
     setupTestScene(scene);
     viewer.render();
 
-    // Register AddModelEnvironment
-    const envManager = EnvironmentManager.getInstance();
-    envManager.register(new AddModelEnvironment(viewer));
+    // Register commands
+    const cmdManager = CommandManager.getInstance();
+    cmdManager.register(new AddModelCommand(viewer));
+    cmdManager.register(new DrawWallCommand(viewer));
 });
 
 export function App() {

@@ -52,9 +52,9 @@ export class WallModel extends BaseModel {
     private _height: number = 2.8;
     private _faces: Map<WallFacePosition, FaceModel> = new Map();
     private _holes: WallHole[] = [];
-    private _holeRevealFaces: FaceModel[] = [];
+    private _holeRevealFaces: Map<string, FaceModel> = new Map();
     private _links: WallLink[] = [];
-    private _miterEndCaps: FaceModel[] = [];
+    private _miterEndCaps: Map<string, FaceModel> = new Map();
 
     constructor(
         from: THREE.Vector2 = new THREE.Vector2(),
@@ -305,7 +305,6 @@ export class WallModel extends BaseModel {
       */
     dirty(): void {
         this._isDirty = true;
-        this.clearMiterEndCaps();
         this.updateFaces();
         this.updateMiterJoints();
         this.dispatchEvent({ type: 'change', wall: this });
@@ -465,10 +464,10 @@ export class WallModel extends BaseModel {
       * Clears all miter end cap faces.
       */
     private clearMiterEndCaps(): void {
-        for (const face of this._miterEndCaps) {
+        for (const face of this._miterEndCaps.values()) {
             this.removeChild(face);
         }
-        this._miterEndCaps = [];
+        this._miterEndCaps.clear();
     }
 
     /**
@@ -486,7 +485,17 @@ export class WallModel extends BaseModel {
 
         const direction = new THREE.Vector2().subVectors(to, from);
         const length = direction.length();
-        if (length === 0) return;
+        const activeKeys = new Set<string>();
+        if (length === 0) {
+            // Wall has no length; clean up all stale miter caps
+            for (const [key, face] of this._miterEndCaps) {
+                if (!activeKeys.has(key)) {
+                    this.removeChild(face);
+                    this._miterEndCaps.delete(key);
+                }
+            }
+            return;
+        }
 
         const dir = direction.clone().normalize();
         const perp = new THREE.Vector2(-dir.y, dir.x);
@@ -553,9 +562,25 @@ export class WallModel extends BaseModel {
             const p3 = new THREE.Vector3(backIntersect.x, backIntersect.y, height);
             const p4 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, height);
 
-            const miterFace = new FaceModel([p1, p2, p3, p4], miterHoleContours);
-            this._miterEndCaps.push(miterFace);
-            this.addChild(miterFace);
+            const miterKey = `${otherWall.id}-${link.end}`;
+            activeKeys.add(miterKey);
+            const existingMiter = this._miterEndCaps.get(miterKey);
+            if (existingMiter) {
+                existingMiter.outerContour = [p1, p2, p3, p4];
+                existingMiter.innerContours = miterHoleContours;
+            } else {
+                const miterFace = new FaceModel([p1, p2, p3, p4], miterHoleContours);
+                this._miterEndCaps.set(miterKey, miterFace);
+                this.addChild(miterFace);
+            }
+        }
+
+        // Remove miter caps for links that no longer exist
+        for (const [key, face] of this._miterEndCaps) {
+            if (!activeKeys.has(key)) {
+                this.removeChild(face);
+                this._miterEndCaps.delete(key);
+            }
         }
     }
 
@@ -762,10 +787,10 @@ export class WallModel extends BaseModel {
       * Clears and disposes all hole reveal faces.
       */
     private clearHoleRevealFaces(): void {
-        for (const face of this._holeRevealFaces) {
+        for (const face of this._holeRevealFaces.values()) {
             this.removeChild(face);
         }
-        this._holeRevealFaces = [];
+        this._holeRevealFaces.clear();
     }
 
     /**
@@ -777,8 +802,8 @@ export class WallModel extends BaseModel {
         dir: THREE.Vector2,
         offset: THREE.Vector2
     ): void {
-        this.clearHoleRevealFaces();
         const wallLength = this._from.distanceTo(this._to);
+        const activeKeys = new Set<string>();
 
         for (const hole of this._holes) {
             const bounds = this.clampHoleBounds(hole, wallLength);
@@ -802,29 +827,43 @@ export class WallModel extends BaseModel {
             const btr = new THREE.Vector3(pRight.x - offset.x, pRight.y - offset.y, bounds.topZ);
             const btl = new THREE.Vector3(pLeft.x - offset.x, pLeft.y - offset.y, bounds.topZ);
 
-            const revealConfigs: { vertices: THREE.Vector3[] }[] = [];
+            const revealConfigs: { key: string; vertices: THREE.Vector3[] }[] = [];
 
             // Left reveal: only if hole does not touch the from-end of the wall
             if (bounds.leftDist > 0) {
-                revealConfigs.push({ vertices: [fbl, bbl, btl, ftl] });
+                revealConfigs.push({ key: `${hole.id}-left`, vertices: [fbl, bbl, btl, ftl] });
             }
             // Right reveal: only if hole does not touch the to-end of the wall
             if (bounds.rightDist < wallLength) {
-                revealConfigs.push({ vertices: [fbr, ftr, btr, bbr] });
+                revealConfigs.push({ key: `${hole.id}-right`, vertices: [fbr, ftr, btr, bbr] });
             }
             // Bottom reveal: only if hole does not touch the ground
             if (bounds.bottomZ > 0) {
-                revealConfigs.push({ vertices: [fbl, fbr, bbr, bbl] });
+                revealConfigs.push({ key: `${hole.id}-bottom`, vertices: [fbl, fbr, bbr, bbl] });
             }
             // Top reveal: only if hole does not touch the wall top
             if (bounds.topZ < this._height) {
-                revealConfigs.push({ vertices: [ftl, ftr, btr, btl] });
+                revealConfigs.push({ key: `${hole.id}-top`, vertices: [ftl, ftr, btr, btl] });
             }
 
             for (const cfg of revealConfigs) {
-                const face = new FaceModel(cfg.vertices);
-                this._holeRevealFaces.push(face);
-                this.addChild(face);
+                activeKeys.add(cfg.key);
+                let face = this._holeRevealFaces.get(cfg.key);
+                if (face) {
+                    face.outerContour = cfg.vertices;
+                } else {
+                    face = new FaceModel(cfg.vertices);
+                    this._holeRevealFaces.set(cfg.key, face);
+                    this.addChild(face);
+                }
+            }
+        }
+
+        // Remove reveal faces that are no longer active
+        for (const [key, face] of this._holeRevealFaces) {
+            if (!activeKeys.has(key)) {
+                this.removeChild(face);
+                this._holeRevealFaces.delete(key);
             }
         }
     }

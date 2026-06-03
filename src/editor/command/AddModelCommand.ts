@@ -1,21 +1,21 @@
 import * as THREE from 'three';
-import { Environment } from './Environment';
-import { EnvironmentManager } from './EnvironmentManager';
+import { Command } from './Command';
+import { CommandManager } from './CommandManager';
 import { AppViewer } from '../../app';
 
 /**
- * 任何拥有 position 属性的模型都可以被 AddModelEnvironment 放置。
+ * 任何拥有 position 属性的模型都可以被 AddModelCommand 放置。
  */
 export interface PositionableModel {
     position: THREE.Vector3;
 }
 
 /**
- * 模型添加环境。
- * 挂载后监听 mousemove 实时预览模型位置，点击确认放置并退回 normal 环境。
- * 按 Escape 取消放置。
+ * 模型添加命令。
+ * onExecute 后监听 mousemove 实时预览模型位置，点击确认放置。
+ * 按 Escape 取消放置。两者均通过 completeCurrent() 结束命令。
  */
-export class AddModelEnvironment implements Environment {
+export class AddModelCommand implements Command {
     readonly name = 'addModel';
 
     private viewer: AppViewer;
@@ -33,24 +33,25 @@ export class AddModelEnvironment implements Environment {
     }
 
     /**
-     * 设置待放置的模型。必须在切换到该环境之前或之后调用。
+     * 设置待放置的模型。必须在 execute 之前调用。
      */
     setModel(model: PositionableModel): void {
         this.model = model;
     }
 
-    mount(): void {
+    onExecute(): void {
         document.addEventListener('mousemove', this.boundMouseMove);
         document.addEventListener('click', this.boundClick, true);   // capture phase
         document.addEventListener('keydown', this.boundKeyDown);
         document.body.style.cursor = 'crosshair';
     }
 
-    unmount(): void {
+    onComplete(): void {
         document.removeEventListener('mousemove', this.boundMouseMove);
         document.removeEventListener('click', this.boundClick, true);
         document.removeEventListener('keydown', this.boundKeyDown);
         document.body.style.cursor = '';
+        this.model = null;
     }
 
     private onMouseMove(e: MouseEvent): void {
@@ -63,14 +64,14 @@ export class AddModelEnvironment implements Environment {
     }
 
     private onClick(_e: MouseEvent): void {
-        // 确认位置，退回 normal 环境
-        EnvironmentManager.getInstance().switchTo('normal');
+        // 确认放置，完成命令
+        CommandManager.getInstance().completeCurrent();
     }
 
     private onKeyDown(e: KeyboardEvent): void {
         if (e.key === 'Escape') {
-            // 取消放置，退回 normal 环境
-            EnvironmentManager.getInstance().switchTo('normal');
+            // 取消放置，完成命令
+            CommandManager.getInstance().completeCurrent();
         }
     }
 }

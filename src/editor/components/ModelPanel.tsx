@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { App as CoreApp, FurnitureModel } from '../../core';
 import { useModelListener } from '../../app/ui';
-import { AddModelEnvironment, EnvironmentManager } from '../env';
+import { AddModelCommand, CommandManager } from '../command';
 
 /**
  * GLB models available in /assets/
@@ -57,12 +57,12 @@ export function ModelPanel() {
         );
         floor.addFurniture(furniture);
 
-        // Switch to AddModelEnvironment to let user place the model
-        const envManager = EnvironmentManager.getInstance();
-        const addModelEnv = envManager.getEnvironment('addModel') as AddModelEnvironment | undefined;
-        if (addModelEnv) {
-            addModelEnv.setModel(furniture);
-            envManager.switchTo('addModel');
+        // Execute AddModelCommand to let user place the model
+        const cmdManager = CommandManager.getInstance();
+        const addModelCmd = cmdManager.getCommand('addModel') as AddModelCommand | undefined;
+        if (addModelCmd) {
+            addModelCmd.setModel(furniture);
+            cmdManager.execute('addModel');
         }
     }, []);
 
