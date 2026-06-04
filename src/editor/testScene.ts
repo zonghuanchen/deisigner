@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material } from '../core';
 import { ParametricDef } from '../core/util';
 import { RoomBuilder } from '../core/util';
+import { FurnitureType } from '../core/types';
 
 /**
  * Test scene setup with walls, rooms, furniture, and parametric models
@@ -95,12 +96,14 @@ export function setupTestScene(scene: SceneModel): void {
                 position: new THREE.Vector3(0, 5, 0.9),
                 rotation: new THREE.Euler(0, 0, 0),
                 scale: new THREE.Vector3(0.5, 0.5, 0.5),
-                linkWall: wall
+                linkWall: wall,
+                type: FurnitureType.Window
             },{
                 position: new THREE.Vector3(5, 0, 0),
                 rotation: new THREE.Euler(0, 0, -Math.PI / 2),
                 scale: new THREE.Vector3(1, 1, 1),
-                linkWall: wall2
+                linkWall: wall2,
+                type: FurnitureType.Door
             }
         ];
 
@@ -117,6 +120,7 @@ export function setupTestScene(scene: SceneModel): void {
                 0.296 * furnitureData.scale.y, 
                 2.522 * furnitureData.scale.z
             );
+            furniture.modelType = furnitureData.type;
             floor.addFurniture(furniture);
             const hole = furnitureData.linkWall.checkFurnitureOverlap(furniture);
             if (hole) {

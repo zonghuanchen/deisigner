@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { ModelRegistry } from '../ModelRegistry';
-import { FURNITURE_MODEL } from '../types';
+import { FURNITURE_MODEL, FurnitureType } from '../types';
 
 export interface FurnitureChangeEvent {
     type: 'change';
@@ -24,6 +24,7 @@ export class FurnitureModel extends BaseModel {
     private _scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
     private _size: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
     private _gltfPath: string;
+    private _modelType: FurnitureType;
 
     constructor(
         gltfPath: string = '',
@@ -31,7 +32,8 @@ export class FurnitureModel extends BaseModel {
         rotation: THREE.Euler = new THREE.Euler(0, 0, 0),
         scale: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
         size: THREE.Vector3 = new THREE.Vector3(1, 1, 1),
-        id?: string
+        id?: string,
+        modelType: FurnitureType = FurnitureType.Normal
     ) {
         super(id);
         this._gltfPath = gltfPath;
@@ -39,6 +41,7 @@ export class FurnitureModel extends BaseModel {
         this._rotation = rotation.clone();
         this._scale = scale.clone();
         this._size = size.clone();
+        this._modelType = modelType;
     }
 
     /**
@@ -117,6 +120,21 @@ export class FurnitureModel extends BaseModel {
     }
 
     /**
+     * Gets the model type (normal, door, window)
+     */
+    get modelType(): FurnitureType {
+        return this._modelType;
+    }
+
+    /**
+     * Sets the model type (normal, door, window)
+     */
+    set modelType(value: FurnitureType) {
+        this._modelType = value;
+        this.dirty();
+    }
+
+    /**
      * Triggers a change event to notify listeners that the furniture has been modified
      */
     dirty(): void {
@@ -132,6 +150,7 @@ export class FurnitureModel extends BaseModel {
             scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
             size: { x: this._size.x, y: this._size.y, z: this._size.z },
             gltfPath: this._gltfPath,
+            modelType: this._modelType,
         };
     }
 }

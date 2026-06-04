@@ -1,33 +1,18 @@
 import * as THREE from 'three';
 import { SelectionManager } from '../../core';
-import { FurnitureModel } from '../../core/model/FurnitureModel';
-import { ParametricModel } from '../../core/model/ParametricModel';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
-import { Scene3DManager } from './Scene3DManager';
-import { computeDragOffset, computeDragPositionWithOffset } from './util/dragHelper';
 
 /**
  * Device handles canvas interaction: raycasting, picking, and selection.
+ * Drag-to-move logic is handled by MoveModelCommand, activated via
+ * SelectionManager 'select' events on pointerdown.
  */
-/** Model types that support drag-to-move */
-type DraggableModel = FurnitureModel | ParametricModel;
-
-function isDraggable(model: any): model is DraggableModel {
-    return model instanceof FurnitureModel || model instanceof ParametricModel;
-}
-
 export class Device {
     private raycaster = new THREE.Raycaster();
-    private pointerDown = new THREE.Vector2();
-    private isDragging = false;
     private camera: THREE.PerspectiveCamera;
     private domElement: HTMLElement;
     private selectionManager: SelectionManager;
-
-    // Drag state
-    private dragModel: DraggableModel | null = null;
-    private dragOffset: THREE.Vector3 | null = null;
 
     constructor(
         camera: THREE.PerspectiveCamera,
@@ -42,120 +27,38 @@ export class Device {
     }
 
     private setupPicking() {
+        // Select on pointerdown so MoveModelCommand can capture the initial
+        // pointer position and handle drag on subsequent pointermove events.
         this.domElement.addEventListener('pointerdown', (e: PointerEvent) => {
-            this.pointerDown.set(e.clientX, e.clientY);
-            this.isDragging = false;
-            this.tryStartDrag(e);
-        });
-        this.domElement.addEventListener('pointermove', (e: PointerEvent) => {
-            if (Math.abs(e.clientX - this.pointerDown.x) > 3 || Math.abs(e.clientY - this.pointerDown.y) > 3) {
-                this.isDragging = true;
+            const model = this.raycast(e);
+            if (model) {
+                const alreadySelected = this.selectionManager.isSelected(model);
+                this.selectionManager.select(model);
+                // When the model is already selected, SelectionManager.select()
+                // returns early without dispatching 'select'.  Re-dispatch it
+                // so MoveModelCommand is (re-)activated for the new drag gesture.
+                if (alreadySelected) {
+                    this.selectionManager.dispatchEvent({ type: 'select', model });
+                }
             }
-            this.updateDrag(e);
         });
+
+        // Clear selection on pointerup over empty space.
+        // If a model was selected on pointerdown, MoveModelCommand is already
+        // active and will complete itself on pointerup via its own handler.
         this.domElement.addEventListener('pointerup', (e: PointerEvent) => {
-            const wasDragging = this.endDrag();
-            if (this.isDragging || wasDragging) return;
-            this.onPointerClick(e);
+            const model = this.raycast(e);
+            if (!model) {
+                this.selectionManager.clear();
+            }
         });
     }
 
     /**
-     * If the pointer-down hits a draggable model, select it and prepare for dragging.
-     * Orbit controls are disabled immediately on pointer-down over a draggable model
-     * to prevent camera movement from causing a position jump.
+     * Casts a ray from the camera through the pointer position and returns
+     * the model associated with the first visible mesh hit, or null.
      */
-    private tryStartDrag(e: PointerEvent): void {
-        const rect = this.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((e.clientX - rect.left) / rect.width) * 2 - 1,
-            -((e.clientY - rect.top) / rect.height) * 2 + 1,
-        );
-        this.raycaster.setFromCamera(mouse, this.camera);
-
-        const pickables: THREE.Object3D[] = [];
-        for (const display of DisplayObject3D.getAll()) {
-            if (!(display instanceof Scene) && display.node.visible) {
-                pickables.push(display.node);
-            }
-        }
-
-        const intersects = this.raycaster.intersectObjects(pickables, true)
-            .filter(hit => this.isVisible(hit.object));
-        if (intersects.length === 0) return;
-
-        const display = this.findDisplayObject(intersects[0].object);
-        if (!display) return;
-
-        const model = display.modelRef;
-        if (!isDraggable(model)) return;
-
-        // Select the model immediately on pointer-down so first-drag works
-        if (!this.selectionManager.isSelected(model)) {
-            this.selectionManager.select(model);
-        }
-
-        // Disable orbit controls immediately to prevent camera movement during drag
-        const controls = Scene3DManager.getInstance().getControls();
-        if (controls) {
-            controls.raw.enabled = false;
-        }
-
-        const offset = computeDragOffset(
-            model.position,
-            e.clientX - rect.left,
-            e.clientY - rect.top,
-            rect.width,
-            rect.height,
-            this.camera,
-        );
-        if (!offset) return;
-
-        this.dragModel = model;
-        this.dragOffset = offset;
-    }
-
-    /**
-     * While dragging, update the model position based on the current pointer position.
-     */
-    private updateDrag(e: PointerEvent): void {
-        if (!this.dragModel || !this.dragOffset) return;
-
-        const rect = this.domElement.getBoundingClientRect();
-        const newPos = computeDragPositionWithOffset(
-            this.dragOffset,
-            this.dragModel.position,
-            e.clientX - rect.left,
-            e.clientY - rect.top,
-            rect.width,
-            rect.height,
-            this.camera,
-        );
-        if (newPos) {
-            this.dragModel.position = newPos;
-        }
-    }
-
-    /**
-     * End the current drag operation and re-enable orbit controls.
-     * @returns true if a drag was in progress
-     */
-    private endDrag(): boolean {
-        const wasDragging = this.dragModel !== null;
-        if (wasDragging) {
-            this.dragModel = null;
-            this.dragOffset = null;
-        }
-
-        // Always re-enable orbit controls when pointer is released over a draggable
-        const controls = Scene3DManager.getInstance().getControls();
-        if (controls) {
-            controls.raw.enabled = true;
-        }
-        return wasDragging;
-    }
-
-    private onPointerClick(event: PointerEvent) {
+    private raycast(event: PointerEvent): import('../../core/model/BaseModel').BaseModel | null {
         const rect = this.domElement.getBoundingClientRect();
         const mouse = new THREE.Vector2(
             ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -163,7 +66,6 @@ export class Device {
         );
         this.raycaster.setFromCamera(mouse, this.camera);
 
-        // Collect all pickable objects (exclude Scene root and invisible nodes)
         const pickables: THREE.Object3D[] = [];
         for (const display of DisplayObject3D.getAll()) {
             if (!(display instanceof Scene) && display.node.visible) {
@@ -173,15 +75,10 @@ export class Device {
 
         const intersects = this.raycaster.intersectObjects(pickables, true)
             .filter(hit => this.isVisible(hit.object));
-        if (intersects.length > 0) {
-            const display = this.findDisplayObject(intersects[0].object);
-            if (display) {
-                this.selectionManager.select(display.modelRef);
-                return;
-            }
-        }
-        // Clicked empty space — clear selection
-        this.selectionManager.clear();
+        if (intersects.length === 0) return null;
+
+        const display = this.findDisplayObject(intersects[0].object);
+        return display ? display.modelRef : null;
     }
 
     /** Walks up the scene graph to find the DisplayObject3D that owns the given object */

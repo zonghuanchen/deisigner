@@ -4,7 +4,8 @@ import { UIContainer, SelectionPanel } from '../app/ui';
 import { ModelPanel } from './components';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '../core';
-import { AddModelCommand, DrawWallCommand, CommandManager } from './command';
+import { AddModelCommand, DrawWallCommand, MoveModelCommand, MoveHostModelCommand, isDraggable, isHostModel, CommandManager } from './command';
+import { SelectionManager } from '../core';
 
 export const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
 viewer.init(
@@ -20,6 +21,42 @@ viewer.init(
     const cmdManager = CommandManager.getInstance();
     cmdManager.register(new AddModelCommand(viewer));
     cmdManager.register(new DrawWallCommand(viewer));
+    const moveCmd = new MoveModelCommand(viewer);
+    cmdManager.register(moveCmd);
+    const moveHostCmd = new MoveHostModelCommand(viewer);
+    cmdManager.register(moveHostCmd);
+
+    // Activate the appropriate move command when a model is selected
+    const selectionManager = SelectionManager.getInstance();
+    selectionManager.addEventListener('select', ((e: any) => {
+        const pos = viewer.getLastPointerPosition();
+        if (!pos) return;
+        if (isDraggable(e.model)) {
+            // Ordinary furniture model -> MoveModelCommand
+            moveCmd.setModel(e.model, pos.clientX, pos.clientY);
+            cmdManager.execute('moveModel');
+        } else if (isHostModel(e.model)) {
+            // Host model (parametric, door, window) -> MoveHostModelCommand
+            moveHostCmd.setModel(e.model, pos.clientX, pos.clientY);
+            cmdManager.execute('moveHostModel');
+        }
+    }) as any);
+
+    // Deactivate move commands when selection is cleared
+    selectionManager.addEventListener('clear', (() => {
+        const name = cmdManager.currentName;
+        if (name === 'moveModel' || name === 'moveHostModel') {
+            cmdManager.completeCurrent();
+        }
+    }) as any);
+
+    // Deactivate move commands when any model is deselected
+    selectionManager.addEventListener('deselect', (() => {
+        const name = cmdManager.currentName;
+        if (name === 'moveModel' || name === 'moveHostModel') {
+            cmdManager.completeCurrent();
+        }
+    }) as any);
 });
 
 export function App() {

@@ -10,3 +10,13 @@ export const ROOM_MODEL = 'RoomModel';
 export const SCENE_MODEL = 'SceneModel';
 export const FURNITURE_MODEL = 'FurnitureModel';
 export const PARAMETRIC_MODEL = 'ParametricModel';
+
+/** Furniture model type */
+export enum FurnitureType {
+    /** Normal model */
+    Normal = 'normal',
+    /** Door model */
+    Door = 'door',
+    /** Window model */
+    Window = 'window',
+}
