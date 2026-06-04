@@ -58,7 +58,7 @@ export function setupTestScene(scene: SceneModel): void {
 
     // Internal partition wall — should create a hole in the floor contour
     const internalWall = new WallModel(
-        new THREE.Vector2(-5, 0),
+        new THREE.Vector2(-3, 0),
         new THREE.Vector2(5, 0),
         0.24,
         2.8
@@ -67,8 +67,6 @@ export function setupTestScene(scene: SceneModel): void {
     // Link internal wall to outer walls at T-junctions
     internalWall.addLink({ wall: wall4 });
     wall4.addLink({ wall: internalWall });
-    internalWall.addLink({ wall: wall2 });
-    wall2.addLink({ wall: internalWall });
 
     // Build rooms from walls
     const rooms = RoomBuilder.build(scene);
@@ -135,7 +133,7 @@ export function setupTestScene(scene: SceneModel): void {
             {
                 type: 'cuboid',
                 params: {
-                    size: [1, 1, 3]
+                    size: [1, 1, 2.8]
                 },
                 bool: [
                     {
@@ -143,7 +141,7 @@ export function setupTestScene(scene: SceneModel): void {
                         shape: {
                             type: 'cuboid',
                             params: {
-                                size: [0.4, 0.4, 3]
+                                size: [0.4, 0.4, 2.8]
                             }
                         }
                     }
@@ -160,7 +158,7 @@ export function setupTestScene(scene: SceneModel): void {
         const parametricModel = new ParametricModel(
             parametricParams,
             [material],
-            new THREE.Vector3(2, 0, 1.5),
+            new THREE.Vector3(2, 1, 1.4),
             new THREE.Euler(0, 0, 0),
             new THREE.Vector3(1, 1, 1)
         );
