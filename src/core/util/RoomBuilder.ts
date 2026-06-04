@@ -346,79 +346,75 @@ export class RoomBuilder {
      * wall edge (both boundary and shared/internal walls) so the floor
      * contour aligns with the inner surface of the walls.
      *
-     * For shared (internal) walls, each adjacent room offsets inward on
-     * its side, so the two rooms' floors meet at the wall boundary without
-     * overlapping.
+     * For *full-footprint walls* (both half-edges of the same wall appear
+     * in the face — typical of partition walls with a free endpoint inside
+     * the room), the far side of the wall rectangle is added so the floor
+     * wraps around the full rectangular footprint instead of collapsing
+     * into a degenerate thin strip.
      */
     private static applyWallThicknessOffset(
         face: HalfEdge[],
         nodes: THREE.Vector2[],
         sharedWallIds: Set<string> = new Set()
     ): THREE.Vector2[] {
-        const n = face.length;
-        const offsetLines: { origin: THREE.Vector2; dir: THREE.Vector2 }[] = [];
+        const keyOf = (from: number, to: number) => `${from}->${to}`;
 
+        // Step 1: Detect full-footprint walls — walls whose both half-edges
+        // appear in this face. These are typically partition walls with at
+        // least one free (dangling) endpoint inside the room.
+        const fullFootprintWallIds = new Set<string>();
         for (const he of face) {
-            const wall = he.wall;
-            const isShared = sharedWallIds.has(wall.id);
+            const reverseKey = keyOf(he.toNode, he.fromNode);
+            if (face.some(other =>
+                keyOf(other.fromNode, other.toNode) === reverseKey &&
+                other.wall.id === he.wall.id
+            )) {
+                fullFootprintWallIds.add(he.wall.id);
+            }
+        }
 
-            if (isShared) {
-                // Shared wall: offset inward (toward room) by half the wall
-                // thickness so the floor stops at the wall's inner surface.
-                // Both adjacent rooms do this, so their floors meet at the
-                // wall boundary without overlapping.
-                const halfWidth = wall.width / 2;
-                const wallDir2 = new THREE.Vector2().subVectors(wall.to, wall.from);
-                wallDir2.normalize();
-                const perp2 = new THREE.Vector2(-wallDir2.y, wallDir2.x);
-                const edgeDir2 = new THREE.Vector2().subVectors(
-                    nodes[he.toNode], nodes[he.fromNode]
-                );
-                const sameAsWall2 = edgeDir2.dot(wallDir2) > 0;
-                const sign2 = sameAsWall2 ? 1 : -1;
-                const offset2 = perp2.clone().multiplyScalar(halfWidth * sign2);
-                const p1 = nodes[he.fromNode].clone().add(offset2);
-                const p2 = nodes[he.toNode].clone().add(offset2);
-                offsetLines.push({
-                    origin: p1,
-                    dir: new THREE.Vector2().subVectors(p2, p1).normalize()
-                });
+        // Step 2: Build offset lines.
+        const offsetLines: { origin: THREE.Vector2; dir: THREE.Vector2 }[] = [];
+        const addedFullFootprint = new Set<string>();
+
+        for (let i = 0; i < face.length; i++) {
+            const he = face[i];
+            const wall = he.wall;
+
+            if (fullFootprintWallIds.has(wall.id)) {
+                // Full-footprint wall: emit this half-edge's room-side
+                // offset, then the far-side edges (free end + far edge),
+                // and skip the second half-edge.
+                if (!addedFullFootprint.has(wall.id)) {
+                    addedFullFootprint.add(wall.id);
+
+                    // Room-side offset (same as normal half-edge offset).
+                    const roomSide = this.computeEdgeOffset(he, wall, nodes);
+                    if (roomSide) offsetLines.push(roomSide);
+
+                    // Far-side edges: fromEnd → toEnd → toRoom.
+                    const farEdges = this.computeFullFootprintWallFarEdges(
+                        he, wall, nodes
+                    );
+                    for (const edge of farEdges) offsetLines.push(edge);
+                }
+                // Second half-edge of the same wall — skip.
                 continue;
             }
 
-            const halfWidth = wall.width / 2;
-
-            const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from);
-            wallDir.normalize();
-            const perp = new THREE.Vector2(-wallDir.y, wallDir.x);
-
-            // Room interior is on the left of the half-edge (CCW traversal).
-            // Determine which side of the wall this half-edge traverses.
-            const edgeDir = new THREE.Vector2().subVectors(
-                nodes[he.toNode], nodes[he.fromNode]
-            );
-            const sameAsWall = edgeDir.dot(wallDir) > 0;
-            // If same direction as wall, room is on +perp side;
-            // if opposite, room is on -perp side.
-            const sign = sameAsWall ? 1 : -1;
-
-            const offset = perp.clone().multiplyScalar(halfWidth * sign);
-            const p1 = nodes[he.fromNode].clone().add(offset);
-            const p2 = nodes[he.toNode].clone().add(offset);
-
-            offsetLines.push({
-                origin: p1,
-                dir: new THREE.Vector2().subVectors(p2, p1).normalize()
-            });
+            // Normal edge offset (boundary or shared wall).
+            const offset = this.computeEdgeOffset(he, wall, nodes);
+            if (offset) offsetLines.push(offset);
         }
 
-        // Compute new vertices at intersections of consecutive offset lines.
-        // When consecutive offset lines are parallel (e.g. sub-segments of the
-        // same split wall), lineIntersection returns null. In that case, use
-        // the current offset line's origin (already correctly offset) instead
-        // of the original un-offset graph node — using the un-offset node
-        // causes the floor contour to dent back to the wall centerline,
-        // producing a triangular footprint instead of a rectangle.
+        if (offsetLines.length < 3) return [];
+
+        // Step 3: Compute vertices at intersections of consecutive offset
+        // lines. When consecutive offset lines are parallel (e.g. sub-segments
+        // of the same split wall), lineIntersection returns null. In that
+        // case, use the current offset line's origin (already correctly
+        // offset) instead of the original un-offset graph node.
+        const n = offsetLines.length;
         const result: THREE.Vector2[] = [];
         for (let i = 0; i < n; i++) {
             const prev = offsetLines[(i - 1 + n) % n];
@@ -445,6 +441,93 @@ export class RoomBuilder {
         const dy = o2.y - o1.y;
         const t = (dx * d2.y - dy * d2.x) / cross;
         return new THREE.Vector2(o1.x + t * d1.x, o1.y + t * d1.y);
+    }
+
+    /**
+     * Computes the room-side offset line for a single half-edge.
+     * The offset moves the edge inward (toward the room interior) by half
+     * the wall thickness.
+     */
+    private static computeEdgeOffset(
+        he: HalfEdge,
+        wall: WallModel,
+        nodes: THREE.Vector2[]
+    ): { origin: THREE.Vector2; dir: THREE.Vector2 } | null {
+        const halfWidth = wall.width / 2;
+        const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from).normalize();
+        const perp = new THREE.Vector2(-wallDir.y, wallDir.x);
+
+        const edgeDir = new THREE.Vector2().subVectors(
+            nodes[he.toNode], nodes[he.fromNode]
+        );
+        const sameAsWall = edgeDir.dot(wallDir) > 0;
+        const sign = sameAsWall ? 1 : -1;
+        const offset = perp.clone().multiplyScalar(halfWidth * sign);
+
+        const p1 = nodes[he.fromNode].clone().add(offset);
+        const p2 = nodes[he.toNode].clone().add(offset);
+
+        const dir = new THREE.Vector2().subVectors(p2, p1);
+        if (dir.lengthSq() < 1e-20) return null;
+        dir.normalize();
+        return { origin: p1, dir };
+    }
+
+    /**
+     * Computes the far-side offset lines for a full-footprint wall.
+     *
+     * A full-footprint wall has both half-edges in the same face (e.g. a
+     * partition with a dangling endpoint). The room wraps around the far
+     * side of the wall, so we emit three additional offset lines:
+     *   1. fromEnd → toEnd  (far side, parallel to wall)
+     *   2. toEnd → toRoom   (free end cap, perpendicular to wall)
+     *   3. toRoom → fromRoom (room-side return, anti-parallel to wall)
+     *
+     * The room-side return line is still needed for intersection with the
+     * next normal edge's offset line, even though it overlaps the normal
+     * half-edge offset.
+     */
+    private static computeFullFootprintWallFarEdges(
+        he: HalfEdge,
+        wall: WallModel,
+        nodes: THREE.Vector2[]
+    ): { origin: THREE.Vector2; dir: THREE.Vector2 }[] {
+        const halfWidth = wall.width / 2;
+        const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from).normalize();
+        const perp = new THREE.Vector2(-wallDir.y, wallDir.x);
+
+        const edgeDir = new THREE.Vector2().subVectors(
+            nodes[he.toNode], nodes[he.fromNode]
+        );
+        const sameAsWall = edgeDir.dot(wallDir) > 0;
+        const sign = sameAsWall ? 1 : -1;
+        const roomOffset = perp.clone().multiplyScalar(halfWidth * sign);
+        const farOffset = roomOffset.clone().negate();
+
+        // Room-side vertices (at halfWidth toward room).
+        const fromRoom = nodes[he.fromNode].clone().add(roomOffset);
+        const toRoom = nodes[he.toNode].clone().add(roomOffset);
+        // Far-side vertices (at halfWidth away from room).
+        const fromEnd = nodes[he.fromNode].clone().add(farOffset);
+        const toEnd = nodes[he.toNode].clone().add(farOffset);
+
+        return [
+            // Far side: fromEnd → toEnd (parallel to wall, on the far side).
+            {
+                origin: fromEnd,
+                dir: new THREE.Vector2().subVectors(toEnd, fromEnd).normalize()
+            },
+            // Free end cap: toEnd → toRoom (perpendicular to wall).
+            {
+                origin: toEnd,
+                dir: new THREE.Vector2().subVectors(toRoom, toEnd).normalize()
+            },
+            // Room-side return: toRoom → fromRoom (anti-parallel to wall).
+            {
+                origin: toRoom,
+                dir: new THREE.Vector2().subVectors(fromRoom, toRoom).normalize()
+            }
+        ];
     }
 
     /**
