@@ -134,8 +134,11 @@ export class Wall2D extends Base2DDisplay {
      * Update z-index based on model position.z
      */
     private updateZIndex(): void {
-        const positionZ = (this.wallModel as any).position?.z || 0;
-        this.updateDisplayZIndex(this.wallGraphics, positionZ);
+        // from and to are Vector2 (z=0); average z of both endpoints + wall height
+        const fromZ = 0;
+        const toZ = 0;
+        const zValue = (fromZ + toZ) / 2 + this.wallModel.height;
+        this.updateDisplayZIndex(this.wallGraphics, zValue);
     }
     
     /**
