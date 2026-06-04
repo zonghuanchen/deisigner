@@ -20,6 +20,8 @@ export interface WallHole {
     height: number;
     /** Height from the ground to the bottom of the hole (sill height) */
     sillHeight: number;
+    /** Optional link to a FurnitureModel id that created this hole */
+    linkModelId?: string | null;
 }
 
 export interface WallChangeEvent {
@@ -1099,7 +1101,8 @@ export class WallModel extends BaseModel {
             position: holeCenterPos,
             width: overlapWidth,
             height: overlapHeight,
-            sillHeight: overlapBottom
+            sillHeight: overlapBottom,
+            linkModelId: furniture.id
         };
     }
 }

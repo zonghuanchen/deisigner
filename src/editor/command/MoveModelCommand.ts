@@ -3,7 +3,6 @@ import { Command } from './Command';
 import { CommandManager } from './CommandManager';
 import { AppViewer } from '../../app';
 import { FurnitureModel } from '../../core/model/FurnitureModel';
-import { ParametricModel } from '../../core/model/ParametricModel';
 import { FurnitureType } from '../../core/types';
 import { computeDragOffset, computeDragPositionWithOffset } from '../../app/3d/util/dragHelper';
 import { Scene3DManager } from '../../app/3d/Scene3DManager';
@@ -16,11 +15,9 @@ function isDraggable(model: any): model is DraggableModel {
     return model instanceof FurnitureModel && model.modelType === FurnitureType.Normal;
 }
 
-/** Type guard: host models (parametric, door, window) that require MoveHostModelCommand */
-function isHostModel(model: any): model is ParametricModel | FurnitureModel {
-    if (model instanceof ParametricModel) return true;
-    if (model instanceof FurnitureModel && (model.modelType === FurnitureType.Door || model.modelType === FurnitureType.Window)) return true;
-    return false;
+/** Type guard: host models (door, window) that require MoveHostModelCommand */
+function isHostModel(model: any): model is FurnitureModel {
+    return model instanceof FurnitureModel && (model.modelType === FurnitureType.Door || model.modelType === FurnitureType.Window);
 }
 
 /**
