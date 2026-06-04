@@ -29,7 +29,9 @@ interface HalfEdge {
  *   4. Keep faces with positive signed area (bounded rooms) and drop the
  *      unbounded outer face plus any degenerate traversals along dangling
  *      chains (signed area ≈ 0).
- *   5. Emit a RoomModel per bounded face.
+ *   5. Emit a RoomModel per bounded face. Walls shared between two adjacent
+ *      faces are treated as internal walls whose rectangular footprint is
+ *      cut as a hole (inner contour) from each room's floor.
  */
 export class RoomBuilder {
     /** Tolerance for treating two endpoints as the same graph node. */
@@ -95,6 +97,7 @@ export class RoomBuilder {
                     // Same wall set → update existing room in-place.
                     matchedExisting.add(sig);
                     existing.outerContour = newRoom.outerContour;
+                    existing.innerContours = newRoom.innerContours;
                     existing.height = newRoom.height;
                     allNewRooms.push(existing);
                 } else {
@@ -122,17 +125,92 @@ export class RoomBuilder {
     }
 
     /**
-     * Detects closed regions formed by the given walls.
-     * Walls that are touched by other walls' endpoints along their body are
-     * automatically split into sub-segments so the planar graph contains
-     * proper junction nodes at those intersection points.
+     * Detects closed regions formed by the given walls and creates one room
+     * per bounded face.
+     *
+     * Algorithm (3 steps):
+     *   1. Find closed regions — build a half-edge planar graph from wall
+     *      segments and trace all minimal bounded faces (CCW, positive area).
+     *   2. Build a wall → face-count map. A wall appearing in exactly one
+     *      face is a *boundary* wall for that room; a wall shared by two
+     *      faces is an *internal* (partition) wall.
+     *   3. For each bounded face, create a RoomModel whose outer contour is
+     *      the wall-thickness-offset polygon of the face edges, and whose
+     *      inner contours are the rectangular footprints of any internal
+     *      walls that border that face.
      */
     static buildFromWalls(walls: WallModel[]): RoomModel[] {
         if (walls.length === 0) return [];
 
-        // 0. Pre-split walls at points where other walls' endpoints land on
-        //    their body.  Each sub-segment references the original WallModel
-        //    so that linkWalls still maps back to the real scene wall.
+        // Step 1: Build graph and find minimal bounded faces.
+        const graph = this.buildHalfEdgeGraph(walls);
+        if (!graph) return [];
+        const { halfEdges, nodes, outgoing, byKey } = graph;
+        const boundedFaces = this.traceBoundedFaces(halfEdges, outgoing, byKey, nodes);
+        if (boundedFaces.length === 0) return [];
+
+        // Step 2: Build wall → face-count map so we can identify shared walls.
+        //   A wall appearing in exactly 1 face is a boundary wall for that room.
+        //   A wall appearing in ≥2 faces is an internal (shared) wall.
+        const wallFaceCount = new Map<string, number>();
+        for (const face of boundedFaces) {
+            const seenInFace = new Set<string>();
+            for (const he of face) {
+                if (!seenInFace.has(he.wall.id)) {
+                    seenInFace.add(he.wall.id);
+                    wallFaceCount.set(
+                        he.wall.id,
+                        (wallFaceCount.get(he.wall.id) ?? 0) + 1
+                    );
+                }
+            }
+        }
+
+        // Step 3: Create one RoomModel per bounded face.
+        const rooms: RoomModel[] = [];
+        for (const face of boundedFaces) {
+            // 3a. Build the set of shared wall IDs for this face.
+            //     Shared (internal) walls are offset inward just like
+            //     boundary walls so the floor stops at the wall's inner
+            //     surface — no overlap between adjacent rooms.
+            const sharedWallIds = new Set<string>();
+            for (const he of face) {
+                const count = wallFaceCount.get(he.wall.id) ?? 0;
+                if (count >= 2) sharedWallIds.add(he.wall.id);
+            }
+
+            // Ordered outer contour with wall-thickness offset.
+            const polygon = this.applyWallThicknessOffset(face, nodes, sharedWallIds);
+            if (polygon.length < 3) continue;
+
+            // 3b. Collect unique walls that bound this face.
+            const linkWalls = this.collectUniqueWalls(face);
+
+            // 3d. Room height from the face's walls.
+            const height = this.resolveRoomHeight(face);
+
+            rooms.push(new RoomModel(polygon, height, [], linkWalls));
+        }
+
+        return rooms;
+    }
+
+    // ── Half-edge graph construction & face tracing ──────────────────────
+
+    /**
+     * Builds the half-edge planar graph from walls, including pre-splitting
+     * at T-intersections.
+     */
+    private static buildHalfEdgeGraph(
+        walls: WallModel[]
+    ): {
+        halfEdges: HalfEdge[];
+        nodes: THREE.Vector2[];
+        outgoing: HalfEdge[][];
+        byKey: Map<string, HalfEdge>;
+    } | null {
+        // Pre-split walls at points where other walls' endpoints land on
+        // their body.
         interface WallSeg {
             from: THREE.Vector2;
             to: THREE.Vector2;
@@ -166,12 +244,11 @@ export class RoomBuilder {
                 segments.push({ from: prev, to: wall.to, wall });
             } else if (segments.length === 0 ||
                        segments[segments.length - 1].wall !== wall) {
-                // No valid segments yet — keep the original wall.
                 segments.push({ from: wall.from.clone(), to: wall.to.clone(), wall });
             }
         }
 
-        // 1. Cluster endpoints into unique nodes.
+        // Cluster endpoints into unique nodes.
         const nodes: THREE.Vector2[] = [];
         const nodeOf = (p: THREE.Vector2): number => {
             for (let i = 0; i < nodes.length; i++) {
@@ -183,12 +260,12 @@ export class RoomBuilder {
             return nodes.length - 1;
         };
 
-        // 2. Build two half-edges per (sub-)segment.
+        // Build two half-edges per (sub-)segment.
         const halfEdges: HalfEdge[] = [];
         for (const seg of segments) {
             const a = nodeOf(seg.from);
             const b = nodeOf(seg.to);
-            if (a === b) continue; // skip degenerate segment
+            if (a === b) continue;
 
             const ab = new THREE.Vector2().subVectors(nodes[b], nodes[a]);
             const angleAB = Math.atan2(ab.y, ab.x);
@@ -198,9 +275,9 @@ export class RoomBuilder {
             halfEdges.push({ fromNode: b, toNode: a, wall: seg.wall, angle: angleBA });
         }
 
-        if (halfEdges.length === 0) return [];
+        if (halfEdges.length === 0) return null;
 
-        // 3. Group outgoing half-edges per node, sorted CCW by angle.
+        // Group outgoing half-edges per node, sorted CCW by angle.
         const outgoing: HalfEdge[][] = nodes.map(() => []);
         for (const he of halfEdges) {
             outgoing[he.fromNode].push(he);
@@ -209,16 +286,30 @@ export class RoomBuilder {
             list.sort((a, b) => a.angle - b.angle);
         }
 
-        // 4. Index half-edges by (from, to) for fast reverse lookup.
+        // Index half-edges by (from, to) for fast reverse lookup.
         const keyOf = (from: number, to: number) => `${from}->${to}`;
         const byKey = new Map<string, HalfEdge>();
         for (const he of halfEdges) {
             byKey.set(keyOf(he.fromNode, he.toNode), he);
         }
 
-        // 5. Trace faces of the planar graph.
+        return { halfEdges, nodes, outgoing, byKey };
+    }
+
+    /**
+     * Traces all bounded (CCW, positive signed area) faces of the planar
+     * graph using the standard leftmost-turn face traversal.
+     */
+    private static traceBoundedFaces(
+        halfEdges: HalfEdge[],
+        outgoing: HalfEdge[][],
+        byKey: Map<string, HalfEdge>,
+        nodes: THREE.Vector2[]
+    ): HalfEdge[][] {
+        const keyOf = (from: number, to: number) => `${from}->${to}`;
         const visited = new Set<HalfEdge>();
-        const faces: HalfEdge[][] = [];
+        const boundedFaces: HalfEdge[][] = [];
+
         for (const start of halfEdges) {
             if (visited.has(start)) continue;
             const face: HalfEdge[] = [];
@@ -228,10 +319,6 @@ export class RoomBuilder {
                 visited.add(current);
                 face.push(current);
 
-                // At current.toNode, find the reverse of current, then take
-                // the outgoing edge immediately clockwise of it (index - 1 in
-                // the CCW-sorted outgoing list). This traces the face on the
-                // left of current in CCW winding.
                 const reverse = byKey.get(
                     keyOf(current.toNode, current.fromNode)
                 );
@@ -242,40 +329,63 @@ export class RoomBuilder {
                 const nextIdx = (idx - 1 + list.length) % list.length;
                 current = list[nextIdx];
             }
-            faces.push(face);
-        }
 
-        // 6. Keep bounded (CCW, positive signed area) faces and create rooms.
-        const rooms: RoomModel[] = [];
-        for (const face of faces) {
             if (face.length < 3) continue;
-            let polygon = face.map(he => nodes[he.fromNode].clone());
-            const area = this.signedArea(polygon);
-            if (area <= this.MIN_AREA) continue;
-
-            const height = this.resolveRoomHeight(face);
-            const linkWalls = this.collectLinkWalls(face);
-            polygon = this.applyWallThicknessOffset(face, nodes);
-            rooms.push(new RoomModel(polygon, height, [], linkWalls));
+            const polygon = face.map(he => nodes[he.fromNode].clone());
+            if (this.signedArea(polygon) <= this.MIN_AREA) continue;
+            boundedFaces.push(face);
         }
 
-        return rooms;
+        return boundedFaces;
     }
 
+    // ── Wall footprint helpers ──────────────────────────────────────────────
+
     /**
-     * Offsets the room polygon inward by half the wall thickness for each edge,
-     * so the floor/ceiling contour aligns with the inner surface of the walls
-     * instead of the wall centerlines.
+     * Offsets the room polygon inward by half the wall thickness for each
+     * wall edge (both boundary and shared/internal walls) so the floor
+     * contour aligns with the inner surface of the walls.
+     *
+     * For shared (internal) walls, each adjacent room offsets inward on
+     * its side, so the two rooms' floors meet at the wall boundary without
+     * overlapping.
      */
     private static applyWallThicknessOffset(
         face: HalfEdge[],
-        nodes: THREE.Vector2[]
+        nodes: THREE.Vector2[],
+        sharedWallIds: Set<string> = new Set()
     ): THREE.Vector2[] {
         const n = face.length;
         const offsetLines: { origin: THREE.Vector2; dir: THREE.Vector2 }[] = [];
 
         for (const he of face) {
             const wall = he.wall;
+            const isShared = sharedWallIds.has(wall.id);
+
+            if (isShared) {
+                // Shared wall: offset inward (toward room) by half the wall
+                // thickness so the floor stops at the wall's inner surface.
+                // Both adjacent rooms do this, so their floors meet at the
+                // wall boundary without overlapping.
+                const halfWidth = wall.width / 2;
+                const wallDir2 = new THREE.Vector2().subVectors(wall.to, wall.from);
+                wallDir2.normalize();
+                const perp2 = new THREE.Vector2(-wallDir2.y, wallDir2.x);
+                const edgeDir2 = new THREE.Vector2().subVectors(
+                    nodes[he.toNode], nodes[he.fromNode]
+                );
+                const sameAsWall2 = edgeDir2.dot(wallDir2) > 0;
+                const sign2 = sameAsWall2 ? 1 : -1;
+                const offset2 = perp2.clone().multiplyScalar(halfWidth * sign2);
+                const p1 = nodes[he.fromNode].clone().add(offset2);
+                const p2 = nodes[he.toNode].clone().add(offset2);
+                offsetLines.push({
+                    origin: p1,
+                    dir: new THREE.Vector2().subVectors(p2, p1).normalize()
+                });
+                continue;
+            }
+
             const halfWidth = wall.width / 2;
 
             const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from);
@@ -302,7 +412,13 @@ export class RoomBuilder {
             });
         }
 
-        // Compute new vertices at intersections of consecutive offset lines
+        // Compute new vertices at intersections of consecutive offset lines.
+        // When consecutive offset lines are parallel (e.g. sub-segments of the
+        // same split wall), lineIntersection returns null. In that case, use
+        // the current offset line's origin (already correctly offset) instead
+        // of the original un-offset graph node — using the un-offset node
+        // causes the floor contour to dent back to the wall centerline,
+        // producing a triangular footprint instead of a rectangle.
         const result: THREE.Vector2[] = [];
         for (let i = 0; i < n; i++) {
             const prev = offsetLines[(i - 1 + n) % n];
@@ -310,7 +426,7 @@ export class RoomBuilder {
             const intersection = this.lineIntersection(
                 prev.origin, prev.dir, curr.origin, curr.dir
             );
-            result.push(intersection || nodes[face[i].fromNode].clone());
+            result.push(intersection || curr.origin.clone());
         }
         return result;
     }
@@ -332,10 +448,30 @@ export class RoomBuilder {
     }
 
     /**
+     * Computes the rectangular 2D footprint of a wall on the ground plane.
+     * The rectangle is aligned to the wall direction and offset by half the
+     * wall thickness on each side. Winding is CW (hole order) so it can be
+     * used directly as an inner contour for CSG subtraction from the floor.
+     */
+    private static computeWallFootprint(wall: WallModel): THREE.Vector2[] {
+        const halfWidth = wall.width / 2;
+        const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from).normalize();
+        const perp = new THREE.Vector2(-wallDir.y, wallDir.x);
+        const offset = perp.clone().multiplyScalar(halfWidth);
+
+        return [
+            wall.from.clone().add(offset),   // +perp side at from
+            wall.to.clone().add(offset),     // +perp side at to
+            wall.to.clone().sub(offset),     // -perp side at to
+            wall.from.clone().sub(offset),   // -perp side at from
+        ];
+    }
+
+    /**
      * Collects the unique walls that form the boundary of the face,
      * preserving traversal order.
      */
-    private static collectLinkWalls(face: HalfEdge[]): WallModel[] {
+    private static collectUniqueWalls(face: HalfEdge[]): WallModel[] {
         const seen = new Set<string>();
         const walls: WallModel[] = [];
         for (const he of face) {
