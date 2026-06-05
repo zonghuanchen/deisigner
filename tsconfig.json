@@ -13,11 +13,19 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@core/*": ["src/core/*"],
-      "@app/*": ["src/app/*"],
-      "@editor/*": ["src/editor/*"]
+      "@designer/core": ["packages/core/src"],
+      "@designer/core/*": ["packages/core/src/*"],
+      "@designer/app": ["packages/app/src"],
+      "@designer/app/*": ["packages/app/src/*"],
+      "@designer/editor": ["packages/editor/src"],
+      "@designer/editor/*": ["packages/editor/src/*"]
     }
   },
-  "include": ["src/**/*", "webpack.config.js"],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/app" },
+    { "path": "packages/editor" }
+  ],
+  "include": [],
   "exclude": ["node_modules", "dist"]
 }

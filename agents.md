@@ -5,8 +5,8 @@
 
 ### 坐标
 
-- src/core: 数据建模用xy面作为地面，即z轴朝上
-- src/app: 3d展示层用three.js的坐标，即y朝上。建模数据超屏幕内旋转90度，就是three.js的坐标
+- packages/core: 数据建模用xy面作为地面，即z轴朝上
+- packages/app: 3d展示层用three.js的坐标，即y朝上。建模数据超屏幕内旋转90度，就是three.js的坐标
 
 ## dom
 
@@ -14,11 +14,11 @@
 - editor-2d: 2d展示对应的dom节点
 - editor-ui: ui界面展示对应的dom节点
 
-## 源代码目录
--src
---core 数据建模目录，纯数据代码，不包含展示层的逻辑，core层的所有功能都通过core/index.ts向外暴露
---app 展示层逻辑，包含3d、2d、ui
---editor 项目代码，把core和app引入进来，组装成整个设计软件
+## 源代码目录（monorepo）
+-packages
+--core 数据建模目录，纯数据代码，不包含展示层的逻辑，core层的所有功能都通过core/src/index.ts向外暴露（包名 @designer/core）
+--app 展示层逻辑，包含3d、2d、ui，依赖 @designer/core（包名 @designer/app）
+--editor 项目代码，把core和app引入进来，组装成整个设计软件，依赖 @designer/core 和 @designer/app（包名 @designer/editor）
 
 ## 整体结构设计
 
