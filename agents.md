@@ -1,32 +1,47 @@
 ## 项目描述
-这是一个在线3d设计软件，支持bim、软装、参数化、定制、铺贴等功能
 
-## 项目说明
+在线3D设计软件，支持BIM、软装、参数化、定制、铺贴等功能。
 
-### 坐标
+## 坐标系
 
-- packages/core: 数据建模用xy面作为地面，即z轴朝上
-- packages/app: 3d展示层用three.js的坐标，即y朝上。建模数据超屏幕内旋转90度，就是three.js的坐标
+- core: XY面为地面，Z轴朝上
+- app: Three.js坐标，Y轴朝上（数据向内旋转90°）
 
-## dom
+## DOM节点
 
-- editor-3d: 3d展示对应dom节点
-- editor-2d: 2d展示对应的dom节点
-- editor-ui: ui界面展示对应的dom节点
+- editor-3d / editor-2d / editor-ui：分别对应3D、2D、UI展示
 
-## 源代码目录（monorepo）
--packages
---core 数据建模目录，纯数据代码，不包含展示层的逻辑，core层的所有功能都通过core/src/index.ts向外暴露（包名 @designer/core）
---app 展示层逻辑，包含3d、2d、ui，依赖 @designer/core（包名 @designer/app）
---editor 项目代码，把core和app引入进来，组装成整个设计软件，依赖 @designer/core 和 @designer/app（包名 @designer/editor）
+## Monorepo 架构
 
-## 整体结构设计
+npm workspaces，根目录 `"workspaces": ["packages/*"]`。
 
-`core/model`数据层的每个对象都会注册到`ModelRegistry`中，`app/3d/display`下会对每个数据模型注册对应3d展示对象。当数据对象被创建时，`ModelRegistry`就会对应的去创建3d展示对象，并用数据对象的id做对应。
+```
+packages/
+├── core/      # @designer/core — 数据建模层，入口 src/index.ts，peerDep: three
+├── app/       # @designer/app  — 展示层(3D/2D/UI)，peerDep: three, pixi.js, react, @designer/core
+└── editor/    # @designer/editor — 编辑器(private)，dep: @designer/core, @designer/app
+```
 
-## 3d模型
-为了性能,mesh不要阴影，有明暗和颜色即可
+依赖链：editor → app → core
 
-## model数据ui展示
+- core/app 支持独立构建和 npm 发布，editor 仅用于开发
+- tsconfig.json 通过 project references + paths 别名，开发时直引源码，发布时独立构建
 
-使用`useModelListener`,获取model数据
+## 常用命令
+
+```bash
+npm install                          # 安装依赖
+npm run dev                          # 开发服务器
+npm run build                        # 构建
+npm run type-check                   # 类型检查
+npm run build --workspace=@designer/core  # 单独构建某包
+```
+
+## 整体结构
+
+`core/model` 数据对象注册到 `ModelRegistry`，`app/3d/display` 为其注册对应3D展示对象，创建时通过ID自动关联。
+
+## 约束
+
+- 3D mesh 不要阴影，有明暗和颜色即可
+- UI 获取 model 数据使用 `useModelListener`
