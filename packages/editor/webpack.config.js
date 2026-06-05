@@ -2,6 +2,8 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
+const assetsDir = path.join(__dirname, '..', 'assets');
+
 /** @type {import('webpack').Configuration} */
 module.exports = {
   entry: {
@@ -67,7 +69,8 @@ module.exports = {
     new CopyWebpackPlugin({
       patterns: [
         {
-          from: 'assets',
+          from: '**/*',
+          context: assetsDir,
           to: 'assets',
         },
       ],
@@ -78,7 +81,7 @@ module.exports = {
     hot: true,
     static: [
       {
-        directory: path.resolve(__dirname, 'assets'),
+        directory: assetsDir,
         publicPath: '/assets',
       },
     ],

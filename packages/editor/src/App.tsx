@@ -4,7 +4,7 @@ import { UIContainer, SelectionPanel } from '@designer/app/ui';
 import { ModelPanel } from './components';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '@designer/core';
-import { AddModelCommand, DrawWallCommand, MoveModelCommand, MoveHostModelCommand, isDraggable, isHostModel, CommandManager } from './command';
+import { AddModelCommand, AddHostModelCommand, DrawWallCommand, MoveModelCommand, MoveHostModelCommand, isDraggable, isHostModel, CommandManager } from './command';
 import { SelectionManager } from '@designer/core';
 
 export const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
@@ -20,6 +20,7 @@ viewer.init(
     // Register commands
     const cmdManager = CommandManager.getInstance();
     cmdManager.register(new AddModelCommand(viewer));
+    cmdManager.register(new AddHostModelCommand(viewer));
     cmdManager.register(new DrawWallCommand(viewer));
     const moveCmd = new MoveModelCommand(viewer);
     cmdManager.register(moveCmd);
@@ -29,6 +30,9 @@ viewer.init(
     // Activate the appropriate move command when a model is selected
     const selectionManager = SelectionManager.getInstance();
     selectionManager.addEventListener('select', ((e: any) => {
+        // Skip auto-move while AddHostModelCommand is actively placing the model
+        if (cmdManager.currentName === 'addHostModel') return;
+
         const pos = viewer.getLastPointerPosition();
         if (!pos) return;
         if (isDraggable(e.model)) {

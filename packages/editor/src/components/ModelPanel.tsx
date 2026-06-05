@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { App as CoreApp, FurnitureModel } from '@designer/core';
+import { FurnitureType } from '@designer/core/types';
 import { useModelListener } from '@designer/app/ui';
-import { AddModelCommand, CommandManager } from '../command';
+import { AddModelCommand, AddHostModelCommand, CommandManager } from '../command';
 
 /**
  * GLB models available in /assets/
@@ -14,7 +15,6 @@ const GLB_MODELS = [
     { name: 'MaterialsVariantsShoe', file: 'MaterialsVariantsShoe.glb' },
     { name: 'SheenChair', file: 'SheenChair.glb' },
     { name: 'SheenWoodLeatherSofa', file: 'SheenWoodLeatherSofa.glb' },
-    { name: 'ToyCar', file: 'ToyCar.glb' },
     { name: 'Door Model', file: 'door-model.glb' },
 ];
 
@@ -69,6 +69,44 @@ export function ModelPanel() {
         if (addModelCmd) {
             addModelCmd.setModel(furniture);
             cmdManager.execute('addModel');
+        }
+    }, []);
+
+    /**
+     * Creates a door or window FurnitureModel and starts the AddHostModelCommand
+     * so the user can pick a wall to place it on. A wall hole is created
+     * automatically when the command completes.
+     */
+    const handleAddHostModel = useCallback((type: FurnitureType.Door | FurnitureType.Window) => {
+        const scene = CoreApp.getInstance().getScene();
+        const floor = scene.defaultFloor;
+        if (!floor) return;
+
+        // Default z: door sits on the floor, window has a sill height
+        const defaultZ = type === FurnitureType.Door ? 0 : 0.9;
+        // Default scale: window is typically smaller
+        const defaultScale = type === FurnitureType.Window ? 0.5 : 1;
+
+        const furniture = new FurnitureModel(
+            '/assets/door-model.glb',
+            new THREE.Vector3(0, 0, defaultZ),
+            new THREE.Euler(0, 0, 0),
+            new THREE.Vector3(defaultScale, defaultScale, defaultScale),
+        );
+        // Set the bounding-box size used by checkFurnitureOverlap for hole generation
+        furniture.size = new THREE.Vector3(
+            1.15 * defaultScale,
+            0.296 * defaultScale,
+            2.522 * defaultScale,
+        );
+        furniture.modelType = type;
+        floor.addFurniture(furniture);
+
+        const cmdManager = CommandManager.getInstance();
+        const cmd = cmdManager.getCommand('addHostModel') as AddHostModelCommand | undefined;
+        if (cmd) {
+            cmd.setModel(furniture);
+            cmdManager.execute('addHostModel');
         }
     }, []);
 
@@ -128,7 +166,11 @@ export function ModelPanel() {
                     <ModelListTab models={GLB_MODELS} onAdd={handleAddModel} />
                 )}
                 {activeTab === 'bim' && (
-                    <BimTab onDrawWall={handleDrawWall} />
+                    <BimTab
+                        onDrawWall={handleDrawWall}
+                        onAddDoor={() => handleAddHostModel(FurnitureType.Door)}
+                        onAddWindow={() => handleAddHostModel(FurnitureType.Window)}
+                    />
                 )}
             </div>
         </div>
@@ -140,9 +182,18 @@ interface ModelItem {
     file: string;
 }
 
-function BimTab({ onDrawWall }: { onDrawWall: () => void }) {
+function BimTab({
+    onDrawWall,
+    onAddDoor,
+    onAddWindow,
+}: {
+    onDrawWall: () => void;
+    onAddDoor: () => void;
+    onAddWindow: () => void;
+}) {
     return (
         <div className="flex items-stretch gap-2 p-2 h-full min-w-min">
+            {/* Wall */}
             <div
                 className="flex flex-col items-center gap-1 px-2 py-1 rounded hover:bg-gray-800/60 group transition-colors cursor-pointer shrink-0 w-16"
                 onClick={onDrawWall}
@@ -153,6 +204,32 @@ function BimTab({ onDrawWall }: { onDrawWall: () => void }) {
                 </div>
                 <span className="text-[10px] text-gray-400 truncate w-full text-center group-hover:text-white transition-colors">
                     墙体
+                </span>
+            </div>
+            {/* Door */}
+            <div
+                className="flex flex-col items-center gap-1 px-2 py-1 rounded hover:bg-gray-800/60 group transition-colors cursor-pointer shrink-0 w-16"
+                onClick={onAddDoor}
+                title="添加门到墙面"
+            >
+                <div className="w-10 h-10 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 group-hover:border-blue-500 transition-colors">
+                    <span className="text-[10px] text-gray-500 font-mono">门</span>
+                </div>
+                <span className="text-[10px] text-gray-400 truncate w-full text-center group-hover:text-white transition-colors">
+                    门
+                </span>
+            </div>
+            {/* Window */}
+            <div
+                className="flex flex-col items-center gap-1 px-2 py-1 rounded hover:bg-gray-800/60 group transition-colors cursor-pointer shrink-0 w-16"
+                onClick={onAddWindow}
+                title="添加窗到墙面"
+            >
+                <div className="w-10 h-10 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0 group-hover:border-blue-500 transition-colors">
+                    <span className="text-[10px] text-gray-500 font-mono">窗</span>
+                </div>
+                <span className="text-[10px] text-gray-400 truncate w-full text-center group-hover:text-white transition-colors">
+                    窗
                 </span>
             </div>
         </div>
