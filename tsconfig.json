@@ -18,13 +18,19 @@
       "@designer/app": ["packages/app/src"],
       "@designer/app/*": ["packages/app/src/*"],
       "@designer/editor": ["packages/editor/src"],
-      "@designer/editor/*": ["packages/editor/src/*"]
+      "@designer/editor/*": ["packages/editor/src/*"],
+      "@designer/pm-engine": ["packages/pm-engine/src"],
+      "@designer/pm-engine/*": ["packages/pm-engine/src/*"],
+      "@designer/pm-editor": ["packages/pm-editor/src"],
+      "@designer/pm-editor/*": ["packages/pm-editor/src/*"]
     }
   },
   "references": [
     { "path": "packages/core" },
     { "path": "packages/app" },
-    { "path": "packages/editor" }
+    { "path": "packages/editor" },
+    { "path": "packages/pm-engine" },
+    { "path": "packages/pm-editor" }
   ],
   "include": [],
   "exclude": ["node_modules", "dist"]
