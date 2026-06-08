@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { MoveModelCommand } from './command/MoveModelCommand';
-import { jscadToBufferGeometry } from './jscadToThree';
+import { jscadToBufferGeometry } from '@designer/pm-engine';
 import type { BuildStep } from '@designer/pm-engine';
 
 /**

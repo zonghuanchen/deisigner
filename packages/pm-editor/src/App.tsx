@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scene3D } from './Scene3D';
-import { jscadToBufferGeometry } from './jscadToThree';
-import { ParametricModeler } from '@designer/pm-engine';
+import { ParametricModeler, applyDefTransform, createThreeMaterial, updateThreeMaterial, jscadToBufferGeometry } from '@designer/pm-engine';
 import type { ParametricDef, BooleanOp, MaterialData, BuildStep } from '@designer/pm-engine';
 import * as THREE from 'three';
+import { AddModelCommand } from './command';
 
 // 材质纹理贴图
 import matTex0 from '@designer/assets/material-0.jpg';
@@ -74,22 +74,6 @@ const INITIAL_DEFS: ParametricDef[] = [
         rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 1, y: 1, z: 1 },
     },
-    {
-        type: 'sphere',
-        params: { radius: 1, center: [4, 0, 1] },
-        material: INITIAL_MATERIALS[1],
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
-    },
-    {
-        type: 'cylinder',
-        params: { radius: 0.8, height: 2.5, center: [-4, 0, 1.25] },
-        material: INITIAL_MATERIALS[2],
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
-    },
 ];
 
 // ─── Scene singleton ──────────────────────────────────────────────────────────
@@ -102,34 +86,11 @@ if (container) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Apply model-layer transforms (Z-up) to a THREE.Group (Y-up).
- * Coordinate conversion: model(x, y, z) → three(x, z, y)
- */
-function applyDefTransform(group: THREE.Group, def: ParametricDef): void {
-    const p = def.position;
-    group.position.set(p?.x ?? 0, p?.z ?? 0, p?.y ?? 0);
-    const r = def.rotation;
-    group.rotation.set(r?.x ?? 0, r?.z ?? 0, r?.y ?? 0);
-    const s = def.scale;
-    group.scale.set(s?.x ?? 1, s?.z ?? 1, s?.y ?? 1);
-}
-
 function buildGroup(def: ParametricDef): DefGroup {
     const geometryData = ParametricModeler.buildGeometries([def]);
     const mat = def.material!;
-    const hasTexture = !!mat.map;
-    const threeMat = new THREE.MeshStandardMaterial({
-        color: hasTexture ? 0xffffff : mat.color,
-        roughness: mat.roughness,
-        metalness: mat.metalness,
-        side: THREE.DoubleSide,
-        emissive: new THREE.Color(hasTexture ? 0x222222 : 0x000000),
-    });
-    if (hasTexture) {
-        threeMat.map = loadTexture(mat.map!);
-        threeMat.needsUpdate = true;
-    }
+    const texture = mat.map ? loadTexture(mat.map) : null;
+    const threeMat = createThreeMaterial(mat, texture);
     const group = new THREE.Group();
     for (const data of geometryData) {
         const bufGeo = jscadToBufferGeometry(data.geometry, data.uvs);
@@ -257,11 +218,26 @@ const BOOL_TYPE_LABELS: Record<string, string> = {
 };
 
 // 可选的 JSCAD 基本形状类型及默认参数
-const SHAPE_PRESETS: Record<string, { label: string; params: Record<string, any> }> = {
-    cuboid:   { label: '长方体', params: { size: [1, 1, 1], center: [0, 0, 0.5] } },
-    sphere:   { label: '球体',   params: { radius: 0.5, center: [0, 0, 0.5] } },
-    cylinder: { label: '圆柱',   params: { radius: 0.5, height: 1, center: [0, 0, 0.5] } },
-};
+// 3D Primitives 完整列表（用于底部面板添加实体 + 布尔运算形状选择）
+const PRIMITIVE_3D_PRESETS: { type: string; label: string; params: Record<string, any> }[] = [
+    { type: 'cube',             label: '正方体',     params: { size: 1, center: [0, 0, 0.5] } },
+    { type: 'cuboid',           label: '长方体',     params: { size: [1, 1, 1], center: [0, 0, 0.5] } },
+    { type: 'cylinder',         label: '圆柱',       params: { radius: 0.5, height: 1, center: [0, 0, 0.5] } },
+    { type: 'cylinderElliptic', label: '椭圆柱',     params: { height: 1, startRadius: [0.5, 0.3], endRadius: [0.5, 0.3], center: [0, 0, 0.5] } },
+    { type: 'ellipsoid',        label: '椭球',       params: { radius: [0.5, 0.4, 0.3], center: [0, 0, 0.5] } },
+    { type: 'geodesicSphere',   label: '测地球',     params: { radius: 0.5, frequency: 6 } },
+    { type: 'roundedCuboid',    label: '圆角方体',   params: { size: [1, 1, 1], roundRadius: 0.1, center: [0, 0, 0.5] } },
+    { type: 'roundedCylinder',  label: '圆角圆柱',   params: { height: 1, radius: 0.5, roundRadius: 0.1, center: [0, 0, 0.5] } },
+    { type: 'sphere',           label: '球体',       params: { radius: 0.5, center: [0, 0, 0.5] } },
+    { type: 'torus',            label: '环体',       params: { innerRadius: 0.2, outerRadius: 0.5 } },
+    { type: 'polyhedron',       label: '多面体',     params: {
+        points: [[0,0,0],[1,0,0],[0.5,1,0],[0.5,0.5,1]],
+        faces: [[0,1,2],[0,1,3],[1,2,3],[0,2,3]],
+    } },
+];
+
+const SHAPE_PRESETS: Record<string, { label: string; params: Record<string, any> }> =
+    Object.fromEntries(PRIMITIVE_3D_PRESETS.map(p => [p.type, { label: p.label, params: p.params }]));
 
 const SHAPE_TYPES = Object.keys(SHAPE_PRESETS);
 
@@ -520,17 +496,17 @@ function ParamsEditor({
                 {/* Add boolean operation buttons */}
                 <div className="flex flex-col gap-1.5 mt-1">
                     <span className="text-[10px] text-gray-500 uppercase tracking-wider">添加布尔运算</span>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="flex flex-col gap-2">
                         {(['subtract', 'union', 'intersect'] as const).map(opType => (
                             <div key={opType} className="flex flex-col gap-1">
-                                <span className="text-[10px] text-gray-500 font-mono text-center">
+                                <span className="text-[10px] text-gray-500 font-mono">
                                     {BOOL_TYPE_LABELS[opType]}
                                 </span>
-                                <div className="flex gap-0.5">
+                                <div className="flex flex-wrap gap-1">
                                     {SHAPE_TYPES.map(st => (
                                         <button
                                             key={st}
-                                            className="flex-1 px-1 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[10px] text-gray-400 hover:text-gray-200 transition-colors border border-gray-700/50 hover:border-gray-600"
+                                            className="w-[3.5rem] h-[2rem] bg-gray-800 hover:bg-gray-700 rounded text-[10px] leading-tight text-gray-400 hover:text-gray-200 transition-colors border border-gray-700/50 hover:border-gray-600 text-center flex items-center justify-center"
                                             title={`${BOOL_TYPE_LABELS[opType]} ${SHAPE_PRESETS[st].label}`}
                                             onClick={() => {
                                                 const newOp: BooleanOp = {
@@ -685,7 +661,7 @@ function DefDataPanel({
     return (
         <div
             className="pointer-events-auto absolute top-20 right-4 w-96 bg-gray-900/95 rounded-lg border border-gray-700 overflow-hidden flex flex-col"
-            style={{ maxHeight: 'calc(100vh - 120px)' }}
+            style={{ maxHeight: 'calc(100vh - 220px)' }}
         >
             <div
                 className="px-4 py-2 border-b border-gray-700/60 flex items-center justify-between cursor-pointer select-none"
@@ -762,6 +738,7 @@ export function App() {
 
     // Stable refs for Three.js objects (not causing re-renders)
     const defGroupsRef = useRef<DefGroup[]>([]);
+    const addCommandRef = useRef<AddModelCommand | null>(null);
 
     // Build all groups on mount and wire up selection callback
     useEffect(() => {
@@ -798,6 +775,7 @@ export function App() {
         return () => {
             scene3d!.onSelect = null;
             scene3d!.onMove = null;
+            addCommandRef.current?.onComplete();
             groups.forEach(dg => scene3d!.removeDefGroup(dg.group));
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -896,31 +874,76 @@ export function App() {
             // 同步更新 Three.js 材质
             const dg = defGroupsRef.current[index];
             if (dg) {
-                const threeMat = dg.threeMat;
-                if (update.color !== undefined) {
-                    threeMat.color.set(update.color);
-                }
-                if (update.roughness !== undefined) {
-                    threeMat.roughness = update.roughness;
-                }
-                if (update.metalness !== undefined) {
-                    threeMat.metalness = update.metalness;
-                }
+                let tex: THREE.Texture | null | undefined;
                 if ('map' in update) {
-                    if (update.map) {
-                        threeMat.map = loadTexture(update.map);
-                        threeMat.color.set(0xffffff);
-                        threeMat.emissive.set(0x222222);
-                    } else {
-                        threeMat.map = null;
-                        threeMat.color.set(newMat.color);
-                        threeMat.emissive.set(0x000000);
-                    }
-                    threeMat.needsUpdate = true;
+                    tex = update.map ? loadTexture(update.map) : null;
                 }
+                updateThreeMaterial(dg.threeMat, update, newMat.color, tex);
             }
             return newDefs;
         });
+    }, []);
+
+    // 添加实体：通过 AddModelCommand 交互式放置
+    const handleAddEntity = useCallback((preset: typeof PRIMITIVE_3D_PRESETS[number]) => {
+        if (!scene3d) return;
+
+        // 完成当前正在执行的添加命令（如有）
+        addCommandRef.current?.onComplete();
+
+        const colors = ['#6c8ebf', '#6ebf7a', '#bf8a6c', '#9b6cbf', '#bf6c8a', '#8abf6c'];
+        const color = colors[defGroupsRef.current.length % colors.length];
+
+        // 构建用于预览的 ghost（半透明）
+        const ghostDef: ParametricDef = {
+            type: preset.type as ParametricDef['type'],
+            params: { ...preset.params },
+            material: { color, roughness: 0.5, metalness: 0.1 },
+            position: { x: 0, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+        };
+        const ghost = buildGroup(ghostDef);
+        // 半透明效果
+        ghost.threeMat.transparent = true;
+        ghost.threeMat.opacity = 0.5;
+        ghost.threeMat.depthWrite = false;
+
+        const cmd = new AddModelCommand(scene3d);
+        cmd.setGhost(ghost.group);
+        cmd.onConfirm = (position: THREE.Vector3) => {
+            addCommandRef.current = null;
+
+            // 从最终位置反算 ParametricDef.position（Three.js Y-up → model Z-up）
+            const newDef: ParametricDef = {
+                type: preset.type as ParametricDef['type'],
+                params: { ...preset.params },
+                material: { color, roughness: 0.5, metalness: 0.1 },
+                position: { x: position.x, y: position.z, z: position.y },
+                rotation: { x: 0, y: 0, z: 0 },
+                scale: { x: 1, y: 1, z: 1 },
+            };
+
+            const dg = buildGroup(newDef);
+            const newIndex = defGroupsRef.current.length;
+            scene3d.addDefGroup(dg.group, newIndex);
+            defGroupsRef.current.push(dg);
+
+            setDefs(prev => [...prev, newDef]);
+            setSelectedIndex(newIndex);
+            scene3d.selectByIndex(newIndex);
+        };
+        cmd.onCancel = () => {
+            addCommandRef.current = null;
+            // 清理 ghost 几何体
+            ghost.group.traverse(child => {
+                if (child instanceof THREE.Mesh) child.geometry.dispose();
+            });
+            ghost.threeMat.dispose();
+        };
+
+        cmd.onExecute();
+        addCommandRef.current = cmd;
     }, []);
 
     const selectedDef = selectedIndex !== null ? defs[selectedIndex] : null;
@@ -942,10 +965,26 @@ export function App() {
             {/* Right panel: live ParametricDef data */}
             <DefDataPanel defs={defs} selectedIndex={selectedIndex} />
 
+            {/* Bottom panel: add 3D primitives */}
+            <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900/95 rounded-lg border border-gray-700 px-2 py-2">
+                <div className="flex flex-wrap justify-center gap-1">
+                    {PRIMITIVE_3D_PRESETS.map(p => (
+                        <button
+                            key={p.type}
+                            className="w-[3.5rem] h-[2rem] bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 text-center flex items-center justify-center"
+                            title={`添加 ${p.label} (${p.type})`}
+                            onClick={() => handleAddEntity(p)}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             {/* Left panel */}
             <div
                 className="pointer-events-auto absolute top-20 left-4 w-80 bg-gray-900/95 rounded-lg border border-gray-700 overflow-hidden flex flex-col"
-                style={{ maxHeight: 'calc(100vh - 120px)' }}
+                style={{ maxHeight: 'calc(100vh - 220px)' }}
             >
                 {/* Selection list */}
                 <div className="px-4 py-3 border-b border-gray-700/60">
