@@ -1,0 +1,79 @@
+[
+  {
+    "type": "cuboid",
+    "params": {
+      "size": [
+        2,
+        2,
+        2
+      ],
+      "center": [
+        0,
+        0,
+        0.6
+      ]
+    },
+    "bool": [
+      {
+        "type": "subtract",
+        "shape": {
+          "type": "cylinder",
+          "params": {
+            "radius": 0.7,
+            "height": 4.6,
+            "center": [
+              0,
+              0,
+              0.1
+            ]
+          }
+        },
+        "rotation": {
+          "x": -0.001592653589793,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "type": "union",
+        "shape": {
+          "type": "cylinder",
+          "params": {
+            "radius": 0.5,
+            "height": 3.65,
+            "center": [
+              0,
+              0,
+              0.5
+            ]
+          }
+        },
+        "rotation": {
+          "x": -0.001592653589793,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "material": {
+      "color": "#6c8ebf",
+      "roughness": 0.6,
+      "metalness": 0.1
+    },
+    "position": {
+      "x": 0.01750732045623804,
+      "y": -0.20007712878842276,
+      "z": 1.0999999999999859
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    }
+  }
+]

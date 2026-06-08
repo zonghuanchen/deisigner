@@ -49,32 +49,7 @@ interface DefGroup {
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
-const INITIAL_MATERIALS: MaterialData[] = [
-    { color: '#6c8ebf', roughness: 0.6, metalness: 0.1 },
-    { color: '#6ebf7a', roughness: 0.4, metalness: 0.2 },
-    { color: '#bf8a6c', roughness: 0.5, metalness: 0.0 },
-];
-
-const INITIAL_DEFS: ParametricDef[] = [
-    {
-        type: 'cuboid',
-        params: { size: [2, 2, 2], center: [0, 0, 1] },
-        bool: [
-            {
-                type: 'subtract',
-                shape: {
-                    type: 'cylinder',
-                    params: { radius: 0.5, height: 3, center: [0, 0, 1] },
-                },
-                rotation: { x: Math.PI / 4, y: 0, z: 0 },
-            },
-        ],
-        material: INITIAL_MATERIALS[0],
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 },
-    },
-];
+const INITIAL_DEFS: ParametricDef[] = require('./demo.json');
 
 // ─── Scene singleton ──────────────────────────────────────────────────────────
 
