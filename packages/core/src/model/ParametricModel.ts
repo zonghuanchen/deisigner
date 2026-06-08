@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
-import { ParametricModeler, ParametricDef, ParametricResult } from '../util/ParametricModeler';
+import { ParametricModeler, ParametricDef, ParametricResult } from '@designer/pm-engine';
 import { Material } from '../material/Material';
 import { ModelRegistry } from '../ModelRegistry';
 import { PARAMETRIC_MODEL } from '../types';
@@ -171,7 +171,7 @@ export class ParametricModel extends BaseModel {
         if (!this._params || this._params.length === 0) {
             return null;
         }
-        const geometries = ParametricModeler.buildParametricModel(this._params);
+        const geometries = ParametricModeler.buildRawGeometries(this._params);
         if (!geometries || geometries.length === 0) {
             return null;
         }

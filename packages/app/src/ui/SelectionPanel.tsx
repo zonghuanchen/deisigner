@@ -7,7 +7,7 @@ import { FurnitureModel } from '@designer/core/model/FurnitureModel';
 import { GroundModel } from '@designer/core/model/GroundModel';
 import { CeilingModel } from '@designer/core/model/CeilingModel';
 import { Material } from '@designer/core/material/Material';
-import type { ParametricDef, BooleanOp } from '@designer/core/util/ParametricModeler';
+import type { ParametricDef, BooleanOp } from '@designer/pm-engine';
 
 const TYPE_LABELS: Record<string, string> = {
     WallModel: '墙体',
@@ -125,7 +125,7 @@ function SizeSliders({ model, defIndex, boolIndex, values, max = 10 }: SizeSlide
                 if (di !== defIndex) return def;
                 const copy = { ...def };
                 if (boolIndex !== undefined && def.bool) {
-                    copy.bool = def.bool.map((b, bi) => {
+                    copy.bool = def.bool.map((b: BooleanOp, bi: number) => {
                         if (bi !== boolIndex) return b;
                         return { ...b, shape: { ...b.shape, params: { ...b.shape.params, size: [...values].map((s, si) => si === axis ? v : s) } } };
                     });
@@ -196,10 +196,53 @@ function ShapeBlock({ def, index, label, model }: { def: ParametricDef; index: n
     );
 }
 
+function BoolRotationSliders({ model, defIndex, boolIndex, rotation }: {
+    model: ParametricModel;
+    defIndex: number;
+    boolIndex: number;
+    rotation: { x: number; y: number; z: number };
+}) {
+    const handleChange = useCallback(
+        (axis: 'x' | 'y' | 'z', v: number) => {
+            const currentParams = model.params;
+            if (!currentParams) return;
+            const newParams = currentParams.map((def, di) => {
+                if (di !== defIndex) return def;
+                const copy = { ...def };
+                if (def.bool) {
+                    copy.bool = def.bool.map((b: BooleanOp, bi: number) => {
+                        if (bi !== boolIndex) return b;
+                        return { ...b, rotation: { ...rotation, [axis]: v } };
+                    });
+                }
+                return copy;
+            });
+            model.params = newParams;
+        },
+        [model, defIndex, boolIndex, rotation],
+    );
+
+    return (
+        <div className="flex flex-col gap-0.5 pl-2 border-l border-purple-500/20">
+            <span className="text-[11px] text-purple-400/70 font-mono">旋转</span>
+            {(['x', 'y', 'z'] as const).map(axis => (
+                <SliderRow
+                    key={axis}
+                    label={axis.toUpperCase()}
+                    value={rotation[axis]}
+                    min={-Math.PI} max={Math.PI} step={0.01}
+                    onChange={v => handleChange(axis, v)}
+                />
+            ))}
+        </div>
+    );
+}
+
 function BoolBlock({ op, index, defIndex, model }: { op: BooleanOp; index: number; defIndex: number; model: ParametricModel }) {
     const [open, setOpen] = useState(true);
     const paramEntries = Object.entries(op.shape.params ?? {});
     const boolLabel = BOOL_LABELS[op.type] ?? op.type;
+    const boolRotation = op.rotation ?? { x: 0, y: 0, z: 0 };
 
     return (
         <div className="flex flex-col gap-0.5">
@@ -222,6 +265,7 @@ function BoolBlock({ op, index, defIndex, model }: { op: BooleanOp; index: numbe
                             <ParamEntry key={k} name={k} value={v} />
                         ),
                     )}
+                    <BoolRotationSliders model={model} defIndex={defIndex} boolIndex={index} rotation={boolRotation} />
                 </div>
             )}
         </div>

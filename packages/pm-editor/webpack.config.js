@@ -15,6 +15,7 @@ module.exports = {
     alias: {
       '@designer/core': path.resolve(__dirname, '../core/src'),
       '@designer/pm-engine': path.resolve(__dirname, '../pm-engine/src'),
+      '@designer/assets': path.resolve(__dirname, '../assets'),
     },
     fallback: {
       path: false,
@@ -39,6 +40,10 @@ module.exports = {
       {
         test: /\.css$/,
         use: ['style-loader', 'css-loader', 'postcss-loader'],
+      },
+      {
+        test: /\.(png|jpe?g|gif|svg|webp)$/i,
+        type: 'asset/resource',
       },
     ],
   },

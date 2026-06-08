@@ -19,10 +19,12 @@ npm workspaces，根目录 `"workspaces": ["packages/*"]`。
 packages/
 ├── core/      # @designer/core — 数据建模层，入口 src/index.ts，peerDep: three
 ├── app/       # @designer/app  — 展示层(3D/2D/UI)，peerDep: three, pixi.js, react, @designer/core
-└── editor/    # @designer/editor — 编辑器(private)，dep: @designer/core, @designer/app
+├── editor/    # @designer/editor — 编辑器(private)，dep: @designer/core, @designer/app
+├── pm-engine/ # @designer/pm-engine — 参数化建模引擎，dep: @jscad/modeling，peerDep: three, @designer/core
+└── pm-editor/ # @designer/pm-editor — pm-engine编辑器(private)，dep: @designer/core, @designer/pm-engine, three
 ```
 
-依赖链：editor → app → core
+依赖链：editor → app → core，pm-editor → pm-engine → core
 
 - core/app 支持独立构建和 npm 发布，editor 仅用于开发
 - tsconfig.json 通过 project references + paths 别名，开发时直引源码，发布时独立构建

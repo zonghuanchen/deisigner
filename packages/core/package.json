@@ -18,7 +18,8 @@
     "three": ">=0.170.0"
   },
   "dependencies": {
-    "@jscad/modeling": "^2.13.0"
+    "@jscad/modeling": "^2.13.0",
+    "@designer/pm-engine": "*"
   },
   "devDependencies": {
     "@types/three": "^0.170.0",

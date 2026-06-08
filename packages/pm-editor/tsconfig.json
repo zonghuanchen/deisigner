@@ -16,7 +16,8 @@
       "@designer/core": ["../core/src"],
       "@designer/core/*": ["../core/src/*"],
       "@designer/pm-engine": ["../pm-engine/src"],
-      "@designer/pm-engine/*": ["../pm-engine/src/*"]
+      "@designer/pm-engine/*": ["../pm-engine/src/*"],
+      "@designer/assets/*": ["../assets/*"]
     },
     "composite": true,
     "rootDir": "src",
