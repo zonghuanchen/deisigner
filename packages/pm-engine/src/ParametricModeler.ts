@@ -38,6 +38,13 @@ export interface TransformData {
 }
 
 /**
+ * 参数绑定：将参数路径映射到表达式字符串
+ * key: 参数路径（如 "size.0"、"radius"）
+ * value: 引用变量的表达式（如 "width * 2"）
+ */
+export type BindingMap = Record<string, string>;
+
+/**
  * Complete parametric definition with optional boolean operations and material
  */
 export type ParametricDef = {
@@ -48,6 +55,8 @@ export type ParametricDef = {
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
+    /** 参数绑定：表达式字符串映射到变量，构建前由 ConstraintSystem 解析 */
+    bindings?: BindingMap;
 };
 
 /**

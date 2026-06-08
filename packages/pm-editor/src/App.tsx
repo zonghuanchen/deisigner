@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scene3D } from './Scene3D';
-import { ParametricModeler, applyDefTransform, createThreeMaterial, updateThreeMaterial, jscadToBufferGeometry } from '@designer/pm-engine';
-import type { ParametricDef, BooleanOp, MaterialData, BuildStep } from '@designer/pm-engine';
+import { ParametricModeler, ConstraintSystem, applyDefTransform, createThreeMaterial, updateThreeMaterial, jscadToBufferGeometry } from '@designer/pm-engine';
+import type { ParametricDef, BooleanOp, MaterialData, BuildStep, BindingMap, VariableMap } from '@designer/pm-engine';
 import * as THREE from 'three';
 import { AddModelCommand } from './command';
 
@@ -49,7 +49,45 @@ interface DefGroup {
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
-const INITIAL_DEFS: ParametricDef[] = require('./demo.json');
+/**
+ * 约束定义：描述一个命名变量及其对实体参数的绑定关系
+ * 存放在 demo.json 的 constraint 字段中
+ */
+interface ConstraintEntry {
+    name: string;           // 变量名（如 "width"）
+    description: string;    // 变量描述
+    value: number;          // 当前数值
+    bindings: Array<{       // 该变量驱动的参数绑定
+        def: number;        // 实体索引（对应 params 数组下标）
+        path: string;       // 参数路径（如 "size.0"）
+        expr: string;       // 表达式（如 "width * 2"）
+    }>;
+}
+
+interface DemoData {
+    params: ParametricDef[];
+    constraint: ConstraintEntry[];
+}
+
+const DEMO_DATA: DemoData = require('./demo.json');
+const INITIAL_DEFS: ParametricDef[] = DEMO_DATA.params;
+const INITIAL_CONSTRAINTS: ConstraintEntry[] = DEMO_DATA.constraint;
+
+/**
+ * 根据约束定义，为某个实体生成 BindingMap
+ * 从所有约束中筛选 def 索引匹配的绑定，汇总为 path → expr 的映射
+ */
+function getBindingsForDef(defIndex: number, constraints: ConstraintEntry[]): BindingMap {
+    const bindings: BindingMap = {};
+    for (const c of constraints) {
+        for (const b of c.bindings) {
+            if (b.def === defIndex) {
+                bindings[b.path] = b.expr;
+            }
+        }
+    }
+    return bindings;
+}
 
 // ─── Scene singleton ──────────────────────────────────────────────────────────
 
@@ -61,9 +99,11 @@ if (container) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildGroup(def: ParametricDef): DefGroup {
-    const geometryData = ParametricModeler.buildGeometries([def]);
-    const mat = def.material!;
+function buildGroup(def: ParametricDef, cs?: ConstraintSystem, bindings?: BindingMap): DefGroup {
+    // 若有约束系统和绑定，先解析绑定表达式
+    const resolvedDef = cs ? cs.resolveDef(def, bindings) : def;
+    const geometryData = ParametricModeler.buildGeometries([resolvedDef]);
+    const mat = resolvedDef.material!;
     const texture = mat.map ? loadTexture(mat.map) : null;
     const threeMat = createThreeMaterial(mat, texture);
     const group = new THREE.Group();
@@ -72,7 +112,7 @@ function buildGroup(def: ParametricDef): DefGroup {
         if (!bufGeo) continue;
         group.add(new THREE.Mesh(bufGeo, threeMat));
     }
-    applyDefTransform(group, def);
+    applyDefTransform(group, resolvedDef);
     return { group, threeMat };
 }
 
@@ -216,14 +256,89 @@ const SHAPE_PRESETS: Record<string, { label: string; params: Record<string, any>
 
 const SHAPE_TYPES = Object.keys(SHAPE_PRESETS);
 
+// ─── Binding UI helpers ─────────────────────────────────────────────────────
+
+function BindButton({ onClick }: { onClick: () => void }) {
+    return (
+        <button
+            className="shrink-0 w-5 h-5 flex items-center justify-center text-[10px] text-gray-600 hover:text-orange-400 hover:bg-orange-600/10 rounded transition-colors"
+            onClick={onClick}
+            title="绑定表达式"
+        >🔗</button>
+    );
+}
+
+function BindingInput({
+    path, expr, preview, onChange, onUnbind, label,
+}: {
+    path: string;
+    expr: string;
+    preview: string;
+    onChange: (expr: string) => void;
+    onUnbind: () => void;
+    label: string;
+}) {
+    return (
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 pl-2 border-l-2 border-orange-500/40">
+            {label && <span className="text-[11px] text-gray-500 font-mono w-4 shrink-0">{label}</span>}
+            <input
+                className="bg-orange-950/40 text-orange-300 text-[11px] font-mono rounded px-1.5 py-0.5 border border-orange-500/30 focus:border-orange-400 outline-none flex-1 min-w-0"
+                value={expr}
+                onChange={e => onChange(e.target.value)}
+                placeholder="表达式"
+            />
+            <span className="text-[10px] text-emerald-400/70 font-mono shrink-0 tabular-nums">{preview}</span>
+            <button
+                className="shrink-0 w-5 h-5 flex items-center justify-center text-[10px] text-orange-400 hover:text-gray-300 hover:bg-gray-700/40 rounded transition-colors"
+                onClick={onUnbind}
+                title="解除绑定"
+            >✕</button>
+        </div>
+    );
+}
+
 function ParamsEditor({
     def,
     onChange,
+    variables,
+    cs,
+    bindings,
+    onBindingsChange,
 }: {
     def: ParametricDef;
     onChange: (newDef: ParametricDef) => void;
+    variables: VariableMap;
+    cs: ConstraintSystem;
+    /** 当前实体的绑定映射（从 constraints 数据中获取） */
+    bindings: BindingMap;
+    /** 绑定变化时回调，更新 constraints 数据 */
+    onBindingsChange: (newBindings: BindingMap) => void;
 }) {
     const paramEntries = Object.entries(def.params ?? {});
+
+    // 切换某个参数的绑定状态
+    const toggleBinding = useCallback((path: string) => {
+        const newBindings = { ...bindings };
+        if (path in newBindings) {
+            delete newBindings[path];
+        } else {
+            // 默认表达式为当前值
+            const curVal = ConstraintSystem.getByPath(def.params, path);
+            newBindings[path] = String(curVal ?? 1);
+        }
+        onBindingsChange(newBindings);
+    }, [def, bindings, onBindingsChange]);
+
+    // 更新绑定表达式
+    const updateBinding = useCallback((path: string, expr: string) => {
+        onBindingsChange({ ...bindings, [path]: expr });
+    }, [bindings, onBindingsChange]);
+
+    // 求值表达式用于预览
+    const evalExpr = useCallback((expr: string): string => {
+        const result = cs.evaluate(expr);
+        return result.error ? `❗ ${result.error}` : `= ${result.value.toFixed(3)}`;
+    }, [cs]);
 
     const handleNumericParam = useCallback(
         (key: string, v: number) => {
@@ -258,14 +373,35 @@ function ParamsEditor({
                     return (
                         <div key={key} className="flex flex-col gap-0.5">
                             <span className="text-[11px] text-gray-500 font-mono">{key}</span>
-                            {(value as number[]).map((v, i) => (
-                                <SliderRow
-                                    key={i}
-                                    label={SIZE_AXIS_LABELS[i] ?? `${i}`}
-                                    value={v} min={0.05} max={10} step={0.05}
-                                    onChange={val => handleSizeAxis(i, val)}
-                                />
-                            ))}
+                            {(value as number[]).map((v, i) => {
+                                const path = `size.${i}`;
+                                const isBound = path in bindings;
+                                return (
+                                    <div key={i} className="flex items-center gap-1">
+                                        {isBound ? (
+                                            <BindingInput
+                                                path={path}
+                                                expr={bindings[path]}
+                                                preview={evalExpr(bindings[path])}
+                                                onChange={e => updateBinding(path, e)}
+                                                onUnbind={() => toggleBinding(path)}
+                                                label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                            />
+                                        ) : (
+                                            <>
+                                                <div className="flex-1 min-w-0">
+                                                    <SliderRow
+                                                        label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                                        value={v} min={0.05} max={10} step={0.05}
+                                                        onChange={val => handleSizeAxis(i, val)}
+                                                    />
+                                                </div>
+                                                <BindButton onClick={() => toggleBinding(path)} />
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     );
                 }
@@ -274,35 +410,75 @@ function ParamsEditor({
                     return (
                         <div key={key} className="flex flex-col gap-0.5">
                             <span className="text-[11px] text-gray-500 font-mono">{key}</span>
-                            {(value as number[]).map((v, i) => (
-                                <SliderRow
-                                    key={i}
-                                    label={SIZE_AXIS_LABELS[i] ?? `${i}`}
-                                    value={v} min={-10} max={10} step={0.1}
-                                    onChange={val => {
-                                        const c = [...(def.params.center as number[])];
-                                        c[i] = val;
-                                        handleNumericParam('center', c as any);
-                                    }}
-                                />
-                            ))}
+                            {(value as number[]).map((v, i) => {
+                                const path = `center.${i}`;
+                                const isBound = path in bindings;
+                                return (
+                                    <div key={i} className="flex items-center gap-1">
+                                        {isBound ? (
+                                            <BindingInput
+                                                path={path}
+                                                expr={bindings[path]}
+                                                preview={evalExpr(bindings[path])}
+                                                onChange={e => updateBinding(path, e)}
+                                                onUnbind={() => toggleBinding(path)}
+                                                label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                            />
+                                        ) : (
+                                            <>
+                                                <div className="flex-1 min-w-0">
+                                                    <SliderRow
+                                                        label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                                        value={v} min={-10} max={10} step={0.1}
+                                                        onChange={val => {
+                                                            const c = [...(def.params.center as number[])];
+                                                            c[i] = val;
+                                                            handleNumericParam('center', c as any);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <BindButton onClick={() => toggleBinding(path)} />
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     );
                 }
                 // Single number → slider
                 if (typeof value === 'number') {
                     const isRadius = key === 'radius';
+                    const isBound = key in bindings;
                     return (
                         <div key={key} className="flex flex-col gap-0.5">
                             <span className="text-[11px] text-gray-500 font-mono">{key}</span>
-                            <SliderRow
-                                label=""
-                                value={value}
-                                min={isRadius ? 0.05 : 0.05}
-                                max={isRadius ? 5 : 10}
-                                step={0.05}
-                                onChange={v => handleNumericParam(key, v)}
-                            />
+                            <div className="flex items-center gap-1">
+                                {isBound ? (
+                                    <BindingInput
+                                        path={key}
+                                        expr={bindings[key]}
+                                        preview={evalExpr(bindings[key])}
+                                        onChange={e => updateBinding(key, e)}
+                                        onUnbind={() => toggleBinding(key)}
+                                        label=""
+                                    />
+                                ) : (
+                                    <>
+                                        <div className="flex-1 min-w-0">
+                                            <SliderRow
+                                                label=""
+                                                value={value}
+                                                min={isRadius ? 0.05 : 0.05}
+                                                max={isRadius ? 5 : 10}
+                                                step={0.05}
+                                                onChange={v => handleNumericParam(key, v)}
+                                            />
+                                        </div>
+                                        <BindButton onClick={() => toggleBinding(key)} />
+                                    </>
+                                )}
+                            </div>
                         </div>
                     );
                 }
@@ -705,22 +881,191 @@ function DefDataPanel({
     );
 }
 
+// ─── Variables panel (constraint system) ─────────────────────────────────────
+
+function VariablesPanel({
+    constraints,
+    variables,
+    onVariableChange,
+    onConstraintRemove,
+    onResetAll,
+}: {
+    constraints: ConstraintEntry[];
+    variables: VariableMap;
+    onVariableChange: (vars: VariableMap) => void;
+    onConstraintRemove: (name: string) => void;
+    onResetAll: () => void;
+}) {
+    const [open, setOpen] = useState(true);
+    const [newName, setNewName] = useState('');
+
+    const handleAdd = () => {
+        const name = newName.trim();
+        if (!name || /^[0-9]/.test(name) || /[^a-zA-Z0-9_]/.test(name)) return;
+        if (name in variables) return;
+        onVariableChange({ ...variables, [name]: 1 });
+        setNewName('');
+    };
+
+    // 是否有变量偏离了原始值
+    const hasModified = constraints.some(c => {
+        const cur = variables[c.name] ?? c.value;
+        return cur !== c.value;
+    });
+
+    return (
+        <div className="flex flex-col gap-1 border-b border-gray-700/60 pb-3">
+            <div className="flex items-center gap-1.5 px-4 pt-3">
+                <button
+                    className="flex items-center gap-1.5 text-left group flex-1 min-w-0"
+                    onClick={() => setOpen(o => !o)}
+                >
+                    <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
+                        {open ? '▾' : '▸'}
+                    </span>
+                    <span className="text-xs font-semibold text-orange-400 uppercase tracking-wide">约束变量</span>
+                    <span className="text-[11px] text-gray-500 font-mono">{constraints.length} 个</span>
+                </button>
+                {hasModified && (
+                    <button
+                        className="shrink-0 text-[10px] text-orange-400/70 hover:text-orange-300 transition-colors px-1.5 py-0.5 border border-orange-500/30 rounded hover:bg-orange-600/20"
+                        onClick={onResetAll}
+                        title="重置所有变量为原始值"
+                    >↺ 全部重置</button>
+                )}
+            </div>
+            {open && (
+                <div className="flex flex-col gap-1.5 px-4">
+                    {constraints.map(c => {
+                        const value = variables[c.name] ?? c.value;
+                        return (
+                            <div key={c.name} className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        className="bg-gray-800 text-orange-300 text-[11px] font-mono rounded px-1.5 py-0.5 border border-gray-700 focus:border-orange-500/60 outline-none w-20 shrink-0"
+                                        value={c.name}
+                                        readOnly
+                                    />
+                                    <input
+                                        type="number"
+                                        className="bg-gray-800 text-gray-200 text-[11px] font-mono rounded px-1.5 py-0.5 border border-gray-700 focus:border-orange-500/60 outline-none flex-1 min-w-0"
+                                        value={value}
+                                        step={0.1}
+                                        onChange={e => {
+                                            const v = parseFloat(e.target.value);
+                                            if (!isNaN(v)) onVariableChange({ ...variables, [c.name]: v });
+                                        }}
+                                    />
+                                    {value !== c.value && (
+                                        <button
+                                            className="text-[11px] text-orange-400/70 hover:text-orange-300 transition-colors px-0.5 shrink-0"
+                                            onClick={() => onVariableChange({ ...variables, [c.name]: c.value })}
+                                            title={`重置为原始值 ${c.value}`}
+                                        >↺</button>
+                                    )}
+                                    <button
+                                        className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors px-0.5 shrink-0"
+                                        onClick={() => onConstraintRemove(c.name)}
+                                        title="删除变量"
+                                    >✕</button>
+                                </div>
+                                {/* 描述 */}
+                                {c.description && (
+                                    <span className="text-[10px] text-gray-600 pl-1 leading-snug">{c.description}</span>
+                                )}
+                                {/* 滑块 */}
+                                <SliderRow
+                                    label=""
+                                    value={value}
+                                    min={0.1} max={20} step={0.1}
+                                    onChange={v => onVariableChange({ ...variables, [c.name]: v })}
+                                />
+                            </div>
+                        );
+                    })}
+                    {/* 添加新变量 */}
+                    <div className="flex items-center gap-2 mt-1">
+                        <input
+                            className="bg-gray-800 text-gray-300 text-[11px] font-mono rounded px-1.5 py-0.5 border border-gray-700 focus:border-orange-500/60 outline-none flex-1 min-w-0"
+                            placeholder="变量名 (如 width)"
+                            value={newName}
+                            onChange={e => setNewName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                        />
+                        <button
+                            className="text-[11px] text-orange-400/70 hover:text-orange-300 transition-colors px-1.5 py-0.5 border border-orange-500/30 rounded hover:bg-orange-600/20"
+                            onClick={handleAdd}
+                        >+ 添加</button>
+                    </div>
+                    <p className="text-[10px] text-gray-600 leading-snug">
+                        在参数输入框中点击🔗绑定表达式，如 <code className="text-orange-400/70">width * 2</code>
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export function App() {
     const [defs, setDefs] = useState<ParametricDef[]>(INITIAL_DEFS);
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+    // 约束数据（从 demo.json 的 constraint 字段初始化）
+    const [constraints, setConstraints] = useState<ConstraintEntry[]>(INITIAL_CONSTRAINTS);
+    // 变量从 constraints 中直接提取
+    const [variables, setVariables] = useState<VariableMap>(() => {
+        const vars: VariableMap = {};
+        for (const c of INITIAL_CONSTRAINTS) {
+            vars[c.name] = c.value;
+        }
+        return vars;
+    });
+
+    // ConstraintSystem 实例（单例）
+    const csRef = useRef<ConstraintSystem | null>(null);
+    if (!csRef.current) csRef.current = new ConstraintSystem();
+    const cs = csRef.current;
 
     // Stable refs for Three.js objects (not causing re-renders)
     const defGroupsRef = useRef<DefGroup[]>([]);
     const addCommandRef = useRef<AddModelCommand | null>(null);
 
+    // 变量变化时同步到 ConstraintSystem 并重建所有有绑定的实体
+    useEffect(() => {
+        cs.setVariables(variables);
+        // 重建所有包含绑定的实体
+        defs.forEach((def, i) => {
+            const bindings = getBindingsForDef(i, constraints);
+            if (Object.keys(bindings).length === 0) return;
+            const dg = defGroupsRef.current[i];
+            if (!dg || !scene3d) return;
+
+            const oldChildren = [...dg.group.children];
+            oldChildren.forEach(child => {
+                dg.group.remove(child);
+                if (child instanceof THREE.Mesh) child.geometry.dispose();
+            });
+
+            const resolvedDef = cs.resolveDef(def, bindings);
+            const geometryData = ParametricModeler.buildGeometries([resolvedDef]);
+            for (const data of geometryData) {
+                const bufGeo = jscadToBufferGeometry(data.geometry, data.uvs);
+                if (!bufGeo) continue;
+                dg.group.add(new THREE.Mesh(bufGeo, dg.threeMat));
+            }
+            applyDefTransform(dg.group, resolvedDef);
+        });
+    }, [variables, cs, constraints]);
+
     // Build all groups on mount and wire up selection callback
     useEffect(() => {
         if (!scene3d) return;
+        cs.setVariables(variables);
         // Build groups
         const groups: DefGroup[] = INITIAL_DEFS.map((def, i) => {
-            const dg = buildGroup(def);
+            const bindings = getBindingsForDef(i, INITIAL_CONSTRAINTS);
+            const dg = buildGroup(def, cs, bindings);
             scene3d!.addDefGroup(dg.group, i);
             return dg;
         });
@@ -786,14 +1131,46 @@ export function App() {
             }
         });
 
-        // Rebuild geometry with the existing material
-        const geometryData = ParametricModeler.buildGeometries([newDef]);
+        // 解析约束表达式后重建几何体
+        const bindings = getBindingsForDef(index, constraints);
+        const resolvedDef = cs.resolveDef(newDef, bindings);
+        const geometryData = ParametricModeler.buildGeometries([resolvedDef]);
         for (const data of geometryData) {
             const bufGeo = jscadToBufferGeometry(data.geometry, data.uvs);
             if (!bufGeo) continue;
             dg.group.add(new THREE.Mesh(bufGeo, dg.threeMat));
         }
-    }, []);
+    }, [cs, constraints]);
+
+    // 更新某个实体的绑定（同步到 constraints 状态）
+    const handleBindingsChange = useCallback((defIndex: number, newBindings: BindingMap) => {
+        setConstraints(prev => {
+            // 先清除该 defIndex 的所有旧绑定，再写入新绑定
+            const updated = prev.map(c => ({
+                ...c,
+                bindings: c.bindings.filter(b => b.def !== defIndex),
+            }));
+
+            // 将新绑定按表达式分组合并到约束条目中
+            // 若该 defIndex 的绑定引用了某个变量，则添加到对应变量的 bindings 中
+            for (const [path, expr] of Object.entries(newBindings)) {
+                // 找到表达式引用的变量名（简化：取第一个匹配的变量）
+                const varNames = Object.keys(variables);
+                let targetConstraint = updated.find(c =>
+                    varNames.includes(c.name) && expr.includes(c.name)
+                );
+                // 找不到则创建一个新的约束条目
+                if (!targetConstraint) {
+                    const newName = `var_${defIndex}_${path.replace(/\./g, '_')}`;
+                    targetConstraint = { name: newName, description: '', value: 1, bindings: [] };
+                    updated.push(targetConstraint);
+                }
+                targetConstraint.bindings.push({ def: defIndex, path, expr });
+            }
+
+            return updated;
+        });
+    }, [variables]);
 
     // 删除实体
     const handleDeleteDef = useCallback((index: number) => {
@@ -878,7 +1255,7 @@ export function App() {
             rotation: { x: 0, y: 0, z: 0 },
             scale: { x: 1, y: 1, z: 1 },
         };
-        const ghost = buildGroup(ghostDef);
+        const ghost = buildGroup(ghostDef, cs);
         // 半透明效果
         ghost.threeMat.transparent = true;
         ghost.threeMat.opacity = 0.5;
@@ -899,7 +1276,7 @@ export function App() {
                 scale: { x: 1, y: 1, z: 1 },
             };
 
-            const dg = buildGroup(newDef);
+            const dg = buildGroup(newDef, cs);
             const newIndex = defGroupsRef.current.length;
             scene3d.addDefGroup(dg.group, newIndex);
             defGroupsRef.current.push(dg);
@@ -919,7 +1296,7 @@ export function App() {
 
         cmd.onExecute();
         addCommandRef.current = cmd;
-    }, []);
+    }, [cs]);
 
     const selectedDef = selectedIndex !== null ? defs[selectedIndex] : null;
     const selectedDg = selectedIndex !== null ? defGroupsRef.current[selectedIndex] : null;
@@ -1025,6 +1402,31 @@ export function App() {
                     </div>
                 </div>
 
+                {/* 约束变量管理 */}
+                <VariablesPanel
+                    constraints={constraints}
+                    variables={variables}
+                    onVariableChange={setVariables}
+                    onConstraintRemove={name => {
+                        // 从 constraints 中删除该变量条目，并从 variables 中移除
+                        setConstraints(prev => prev.filter(c => c.name !== name));
+                        setVariables(prev => {
+                            const next = { ...prev };
+                            delete next[name];
+                            return next;
+                        });
+                    }}
+                    onResetAll={() => {
+                        setVariables(prev => {
+                            const next = { ...prev };
+                            for (const c of constraints) {
+                                next[c.name] = c.value;
+                            }
+                            return next;
+                        });
+                    }}
+                />
+
                 {/* Selected entity details */}
                 {selectedDef && selectedDg ? (
                     <div className="flex-1 overflow-y-auto">
@@ -1051,6 +1453,10 @@ export function App() {
                                 <ParamsEditor
                                     def={selectedDef}
                                     onChange={newDef => handleDefChange(selectedIndex!, newDef)}
+                                    variables={variables}
+                                    cs={cs}
+                                    bindings={getBindingsForDef(selectedIndex!, constraints)}
+                                    onBindingsChange={newBindings => handleBindingsChange(selectedIndex!, newBindings)}
                                 />
                             </div>
                         </div>
