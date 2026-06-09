@@ -155,8 +155,8 @@ export class MoveModelCommand implements Command {
     }
 
     /**
-     * Raycast onto the horizontal plane at `modelY` and return the offset
-     * between the hit point and the model origin.
+     * Raycast onto the horizontal plane and return the offset
+     * between the hit point and the model origin (in Z-up local space).
      */
     private computeOffset(
         modelPos: THREE.Vector3,
@@ -166,12 +166,13 @@ export class MoveModelCommand implements Command {
     ): THREE.Vector3 | null {
         const hit = this.rayHitOnPlane(modelPos, pxX, pxY, w, h, camera);
         if (!hit) return null;
-        // offset = hit - modelPos  (so modelPos = hit - offset later)
-        return hit.clone().sub(modelPos);
+        // Convert world Y-up hit → Z-up local: (x, y, z) → (x, -z, y)
+        const localHit = new THREE.Vector3(hit.x, -hit.z, hit.y);
+        return localHit.sub(modelPos);
     }
 
     /**
-     * Compute new model position: worldHit - offset.
+     * Compute new model position in Z-up local space: localHit - offset.
      */
     private computePositionWithOffset(
         offset: THREE.Vector3,
@@ -182,11 +183,13 @@ export class MoveModelCommand implements Command {
     ): THREE.Vector3 | null {
         const hit = this.rayHitOnPlane(modelPos, pxX, pxY, w, h, camera);
         if (!hit) return null;
-        return hit.sub(offset);
+        const localHit = new THREE.Vector3(hit.x, -hit.z, hit.y);
+        return localHit.sub(offset);
     }
 
     /**
-     * Intersect the camera ray with the horizontal plane (Y = modelPos.y).
+     * Intersect the camera ray with the horizontal plane.
+     * Uses model's local Z as the world Y height (root group maps local Z → world Y).
      */
     private rayHitOnPlane(
         modelPos: THREE.Vector3,
@@ -200,8 +203,8 @@ export class MoveModelCommand implements Command {
         );
         MoveModelCommand._raycaster.setFromCamera(MoveModelCommand._mouse, camera);
 
-        // Horizontal plane at model's Y height (Three.js Y-up)
-        MoveModelCommand._plane.set(new THREE.Vector3(0, 1, 0), -modelPos.y);
+        // Horizontal plane at model's Z height (root rotation maps local Z → world Y)
+        MoveModelCommand._plane.set(new THREE.Vector3(0, 1, 0), -modelPos.z);
 
         if (!MoveModelCommand._raycaster.ray.intersectPlane(MoveModelCommand._plane, MoveModelCommand._intersection)) {
             return null;

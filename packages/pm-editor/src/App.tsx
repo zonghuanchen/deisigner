@@ -1312,13 +1312,12 @@ export function App() {
         };
 
         // Wire move callback: sync position when dragged in 3D
-        // Parametric defs: coordinate conversion (Three.js Y-up → model Z-up)
-        // GLB models: direct Three.js coords
+        // Position is in Z-up local space (root group handles Z-up → Y-up conversion)
         scene3d.onMove = (index, position) => {
             if (index >= 0) {
                 setDefs(prev => prev.map((d, i) => {
                     if (i !== index) return d;
-                    return { ...d, position: { x: position.x, y: position.z, z: position.y } };
+                    return { ...d, position: { x: position.x, y: position.y, z: position.z } };
                 }));
             } else {
                 const gi = -(index + 1);
@@ -1510,12 +1509,12 @@ export function App() {
         cmd.onConfirm = (position: THREE.Vector3) => {
             addCommandRef.current = null;
 
-            // 从最终位置反算 ParametricDef.position（Three.js Y-up → model Z-up）
+            // 从最终位置反算 ParametricDef.position（已在 Z-up 本地空间）
             const newDef: ParametricDef = {
                 type: preset.type as ParametricDef['type'],
                 params: { ...preset.params },
                 material: { color, roughness: 0.5, metalness: 0.1 },
-                position: { x: position.x, y: position.z, z: position.y },
+                position: { x: position.x, y: position.y, z: position.z },
                 rotation: { x: 0, y: 0, z: 0 },
                 scale: { x: 1, y: 1, z: 1 },
             };
@@ -1546,8 +1545,13 @@ export function App() {
     const loadGlbModelToScene = useCallback((modelData: GlbModelItem) => {
         if (!scene3d) return;
         gltfLoader.load(modelData.glb, (gltf) => {
+            // GLB geometry is Y-up; add counter-rotation so it renders correctly under Z-up root
+            const inner = new THREE.Group();
+            inner.rotation.x = Math.PI / 2;
+            inner.add(gltf.scene);
+
             const group = new THREE.Group();
-            group.add(gltf.scene);
+            group.add(inner);
             group.position.set(modelData.position.x, modelData.position.y, modelData.position.z);
             group.rotation.set(modelData.rotation.x, modelData.rotation.y, modelData.rotation.z);
             group.scale.set(modelData.scale.x, modelData.scale.y, modelData.scale.z);
@@ -1579,15 +1583,25 @@ export function App() {
                     });
                 }
             });
+            // GLB is Y-up; add counter-rotation so ghost renders correctly under Z-up root
+            const ghostInner = new THREE.Group();
+            ghostInner.rotation.x = Math.PI / 2;
+            ghostInner.add(ghost);
+            const ghostGroup = new THREE.Group();
+            ghostGroup.add(ghostInner);
 
             const cmd = new AddModelCommand(scene3d);
-            cmd.setGhost(ghost);
+            cmd.setGhost(ghostGroup);
             cmd.onConfirm = (position: THREE.Vector3) => {
                 addCommandRef.current = null;
                 // 加载实际模型并放置到场景中
                 gltfLoader.load(glbUrl, (gltf2) => {
+                    const inner = new THREE.Group();
+                    inner.rotation.x = Math.PI / 2;
+                    inner.add(gltf2.scene);
+
                     const group = new THREE.Group();
-                    group.add(gltf2.scene);
+                    group.add(inner);
                     group.position.copy(position);
 
                     const gi = glbGroupsRef.current.length;

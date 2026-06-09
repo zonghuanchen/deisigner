@@ -52,7 +52,7 @@ export class AddModelCommand implements Command {
 
     onExecute(): void {
         if (this.ghost) {
-            this.scene3d.getScene().add(this.ghost);
+            this.scene3d.getRootGroup().add(this.ghost);
         }
         this.scene3d.getControls().enabled = false;
 
@@ -71,7 +71,9 @@ export class AddModelCommand implements Command {
         this.scene3d.getControls().enabled = true;
 
         if (this.ghost) {
-            this.scene3d.getScene().remove(this.ghost);
+            if (this.ghost.parent) {
+                this.ghost.parent.remove(this.ghost);
+            }
             this.ghost = null;
         }
     }
@@ -93,7 +95,9 @@ export class AddModelCommand implements Command {
             AddModelCommand._plane,
             AddModelCommand._intersection,
         )) {
-            this.ghost.position.copy(AddModelCommand._intersection);
+            const hit = AddModelCommand._intersection;
+            // Convert world Y-up hit → Z-up local: (x, y, z) → (x, -z, y)
+            this.ghost.position.set(hit.x, -hit.z, hit.y);
         }
     }
 

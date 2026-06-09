@@ -14,6 +14,7 @@ import type { BuildStep } from '@designer/pm-engine';
  */
 export class Scene3D {
     private scene: THREE.Scene;
+    private rootGroup: THREE.Group;
     private camera: THREE.PerspectiveCamera;
     private renderer: THREE.WebGLRenderer;
     private controls: OrbitControls;
@@ -46,6 +47,12 @@ export class Scene3D {
         // Scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x404060);
+
+        // Root group: Z-up (local) → Y-up (world) via −90° X rotation.
+        // All def groups are added here so geometry & transforms stay in Z-up natively.
+        this.rootGroup = new THREE.Group();
+        this.rootGroup.rotation.x = -Math.PI / 2;
+        this.scene.add(this.rootGroup);
 
         // Camera (Y-up, Three.js convention)
         const aspect = container.clientWidth / container.clientHeight || 1;
@@ -137,6 +144,10 @@ export class Scene3D {
         return this.scene;
     }
 
+    getRootGroup(): THREE.Group {
+        return this.rootGroup;
+    }
+
     getCamera(): THREE.PerspectiveCamera {
         return this.camera;
     }
@@ -154,7 +165,7 @@ export class Scene3D {
      * Registers it for picking so clicks can identify it by defIndex.
      */
     addDefGroup(group: THREE.Group, defIndex: number): void {
-        this.scene.add(group);
+        this.rootGroup.add(group);
         this.groupMap.set(group, defIndex);
     }
 
@@ -307,7 +318,7 @@ export class Scene3D {
             // Place label above the mesh
             const stepBox = new THREE.Box3().setFromObject(stepGroup);
             const stepSize = stepBox.getSize(new THREE.Vector3());
-            label.position.set(stepGroup.position.x, stepSize.y * 0.5 + 0.8, 0);
+            label.position.set(stepGroup.position.x, 0, stepSize.z * 0.5 + 0.8);
             stepGroup.add(label);
 
             // For boolean steps, show the operand shape in red-ish
@@ -329,8 +340,8 @@ export class Scene3D {
                         opacity: 0.5,
                     }));
                     // Place operand slightly above the result
-                    opMesh.position.y = 0.15;
-                    opWire.position.y = 0.15;
+                    opMesh.position.z = 0.15;
+                    opWire.position.z = 0.15;
                     stepGroup.add(opMesh);
                     stepGroup.add(opWire);
                 }
@@ -353,7 +364,7 @@ export class Scene3D {
 
         this.buildProcessGroup = wrapper;
         this.buildProcessSource = sourceGroup;
-        this.scene.add(wrapper);
+        this.rootGroup.add(wrapper);
     }
 
     /**

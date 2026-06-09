@@ -1,27 +1,19 @@
 import * as THREE from 'three';
 import type { ParametricDef, MaterialData, GeometryData, GeometryUVs } from './ParametricModeler';
 
-// ─── Coordinate conversion ──────────────────────────────────────────────────
-
-/**
- * Rotation matrix: architectural coords (XY ground, Z up) → Three.js coords (XZ ground, Y up).
- * Equivalent to −90° rotation around X axis.
- */
-const ARCH_TO_THREE = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
-
 // ─── Transform ──────────────────────────────────────────────────────────────
 
 /**
- * Apply model-layer transforms (Z-up) to a THREE.Group (Y-up).
- * Coordinate conversion: model(x, y, z) → three(x, z, y)
+ * Apply model-layer transforms directly in Z-up space.
+ * The scene root group handles Z-up → Y-up conversion via a −90° X rotation.
  */
 export function applyDefTransform(group: THREE.Group, def: Pick<ParametricDef, 'position' | 'rotation' | 'scale'>): void {
     const p = def.position;
-    group.position.set(p?.x ?? 0, p?.z ?? 0, p?.y ?? 0);
+    group.position.set(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0);
     const r = def.rotation;
-    group.rotation.set(r?.x ?? 0, r?.z ?? 0, r?.y ?? 0);
+    group.rotation.set(r?.x ?? 0, r?.y ?? 0, r?.z ?? 0);
     const s = def.scale;
-    group.scale.set(s?.x ?? 1, s?.z ?? 1, s?.y ?? 1);
+    group.scale.set(s?.x ?? 1, s?.y ?? 1, s?.z ?? 1);
 }
 
 // ─── Material ───────────────────────────────────────────────────────────────
@@ -86,7 +78,7 @@ export function updateThreeMaterial(
 // ─── Geometry conversion (JSCAD → Three.js BufferGeometry) ──────────────────
 
 /**
- * Converts a JSCAD geom3 to a Three.js BufferGeometry (with arch→Three coord transform).
+ * Converts a JSCAD geom3 to a Three.js BufferGeometry (Z-up, no coord transform).
  */
 function geom3ToBuffer(jscadGeom: any, uvs?: GeometryUVs): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
@@ -115,13 +107,12 @@ function geom3ToBuffer(jscadGeom: any, uvs?: GeometryUVs): THREE.BufferGeometry 
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     }
     geo.setIndex(indices);
-    geo.applyMatrix4(ARCH_TO_THREE);
     geo.computeVertexNormals();
     return geo;
 }
 
 /**
- * Converts a JSCAD geom2 to a Three.js BufferGeometry (flat on XY, then coord transform).
+ * Converts a JSCAD geom2 to a Three.js BufferGeometry (flat on XY, Z-up).
  */
 function geom2ToBuffer(jscadGeom: any, uvs?: GeometryUVs): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
@@ -148,14 +139,13 @@ function geom2ToBuffer(jscadGeom: any, uvs?: GeometryUVs): THREE.BufferGeometry 
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     }
     geo.setIndex(indices);
-    geo.applyMatrix4(ARCH_TO_THREE);
     geo.computeVertexNormals();
     return geo;
 }
 
 /**
  * Converts a JSCAD geometry (geom2 or geom3) to a Three.js BufferGeometry.
- * Applies architectural (Z-up) → Three.js (Y-up) coordinate transform.
+ * Geometry stays in Z-up space; the scene root group handles coord conversion.
  * If `uvs` is provided (from pm-engine), applies them as the 'uv' attribute.
  */
 export function jscadToBufferGeometry(jscadGeom: any, uvs?: GeometryUVs): THREE.BufferGeometry | null {
