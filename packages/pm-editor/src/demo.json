@@ -67,5 +67,6 @@
         { "def": 1, "path": "size.2", "expr": "height" }
       ]
     }
-  ]
+  ],
+  "models": []
 }

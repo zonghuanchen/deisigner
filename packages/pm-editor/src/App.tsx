@@ -3,6 +3,7 @@ import { Scene3D } from './Scene3D';
 import { ParametricModeler, ConstraintSystem, applyDefTransform, createThreeMaterial, updateThreeMaterial, jscadToBufferGeometry } from '@designer/pm-engine';
 import type { ParametricDef, BooleanOp, MaterialData, BuildStep, BindingMap, VariableMap } from '@designer/pm-engine';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { AddModelCommand } from './command';
 
 // 材质纹理贴图
@@ -12,6 +13,11 @@ import matTex2 from '@designer/assets/material-2.jpg';
 import matTex3 from '@designer/assets/material-3.jpg';
 import matTex4 from '@designer/assets/material-4.jpg';
 import matTex5 from '@designer/assets/material-5.jpg';
+
+// GLB 模型
+import woodPlanksGlb from '@designer/assets/WoodPlanks.glb';
+import woodenPlankGlb from '@designer/assets/WoodenPlank.glb';
+import woodPlanksBlockGlb from '@designer/assets/WoodPlanksBlock.glb';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +38,7 @@ const TEXTURE_OPTIONS: TextureOption[] = [
 // 纹理缓存，避免重复加载
 const textureCache = new Map<string, THREE.Texture>();
 const textureLoader = new THREE.TextureLoader();
+const gltfLoader = new GLTFLoader();
 function loadTexture(url: string): THREE.Texture {
     let tex = textureCache.get(url);
     if (!tex) {
@@ -64,14 +71,33 @@ interface ConstraintEntry {
     }>;
 }
 
+interface Vec3Data { x: number; y: number; z: number }
+
+interface GlbModelItem {
+    glb: string;        // GLB 文件 URL（webpack 解析后的路径）
+    label: string;      // 模型显示名称
+    position: Vec3Data;
+    rotation: Vec3Data;
+    scale: Vec3Data;
+}
+
 interface DemoData {
     params: ParametricDef[];
     constraint: ConstraintEntry[];
+    models: GlbModelItem[];
 }
 
 const DEMO_DATA: DemoData = require('./demo.json');
 const INITIAL_DEFS: ParametricDef[] = DEMO_DATA.params;
 const INITIAL_CONSTRAINTS: ConstraintEntry[] = DEMO_DATA.constraint;
+const INITIAL_GLB_MODELS: GlbModelItem[] = DEMO_DATA.models ?? [];
+
+// GLB 模型注册表：label → webpack 解析后的 URL
+const GLB_MODEL_REGISTRY: Record<string, string> = {
+    '木板': woodPlanksGlb,
+    '单块木板': woodenPlankGlb,
+    '木板块': woodPlanksBlockGlb,
+};
 
 /**
  * 根据约束定义，为某个实体生成 BindingMap
@@ -801,13 +827,31 @@ const BUILD_STEP_COLORS = ['#6c8ebf', '#e8a838', '#8b5cf6', '#22c55e', '#ef4444'
 function DefDataPanel({
     defs,
     selectedIndex,
+    constraints,
+    glbModels,
 }: {
     defs: ParametricDef[];
     selectedIndex: number | null;
+    constraints: ConstraintEntry[];
+    glbModels: GlbModelItem[];
 }) {
     const [collapsed, setCollapsed] = useState(false);
+    const [activeTab, setActiveTab] = useState<'params' | 'constraint' | 'models'>('params');
+    const [copied, setCopied] = useState(false);
     const selectedDef = selectedIndex !== null ? defs[selectedIndex] : null;
     const buildSteps = selectedDef ? ParametricModeler.buildSteps(selectedDef) : [];
+
+    const getAllJson = () => JSON.stringify({
+        params: selectedDef ?? defs,
+        constraint: constraints,
+        models: glbModels,
+    }, null, 2);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(getAllJson()).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        });
+    };
 
     return (
         <div
@@ -819,63 +863,170 @@ function DefDataPanel({
                 onClick={() => setCollapsed(c => !c)}
             >
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    {selectedDef ? `实体 #${selectedIndex} 构建过程` : 'ParametricDef 数据'}
+                    {activeTab === 'params'
+                        ? (selectedDef ? `实体 #${selectedIndex} 构建过程` : 'ParametricDef 数据')
+                        : activeTab === 'constraint' ? '约束 Constraint' : '模型 Models'}
                 </span>
                 <span className="text-[11px] text-gray-500 font-mono">
                     {collapsed ? '▶' : '▼'}
                 </span>
             </div>
             {!collapsed && (
-                <div className="flex-1 overflow-auto">
-                    {/* Build steps */}
-                    {buildSteps.length > 0 ? (
-                        <div className="px-4 py-3 flex flex-col gap-2">
-                            {buildSteps.map((step) => {
-                                const color = BUILD_STEP_COLORS[step.index % BUILD_STEP_COLORS.length];
-                                return (
-                                    <div key={step.index} className="flex flex-col gap-1">
-                                        <div className="flex items-center gap-2">
-                                            <span
-                                                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                                                style={{ backgroundColor: color }}
-                                            >
-                                                {step.index}
-                                            </span>
-                                            <span className="text-xs font-mono text-gray-200">{step.label}</span>
-                                        </div>
-                                        {/* Show params for base shape */}
-                                        {step.index === 0 && selectedDef && (
-                                            <pre className="pl-7 text-[10px] leading-snug font-mono text-gray-400 whitespace-pre-wrap break-all">
-                                                {JSON.stringify(selectedDef.params, null, 2)}
-                                            </pre>
-                                        )}
-                                        {/* Show bool op params */}
-                                        {step.index > 0 && selectedDef?.bool?.[step.index - 1] && (
-                                            <pre className="pl-7 text-[10px] leading-snug font-mono text-gray-400 whitespace-pre-wrap break-all">
-                                                {JSON.stringify(selectedDef.bool[step.index - 1].shape, null, 2)}
-                                            </pre>
-                                        )}
-                                        {/* Arrow between steps */}
-                                        {step.index < buildSteps.length - 1 && (
-                                            <div className="pl-2.5 text-gray-600 text-xs">↓</div>
-                                        )}
+                <>
+                    {/* Tab bar */}
+                    <div className="flex items-center gap-1 px-4 pt-2 pb-1 border-b border-gray-700/40">
+                        {(['params', 'constraint', 'models'] as const).map(tab => (
+                            <button
+                                key={tab}
+                                className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${
+                                    activeTab === tab
+                                        ? 'text-white bg-blue-600/40 border border-blue-500/50'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 border border-transparent'
+                                }`}
+                                onClick={() => setActiveTab(tab)}
+                            >
+                                {tab === 'params' ? 'Params' : tab === 'constraint' ? 'Constraint' : 'Models'}
+                            </button>
+                        ))}
+                        <button
+                            className="ml-auto px-2 py-1 text-[11px] font-medium rounded transition-colors text-gray-500 hover:text-green-300 hover:bg-green-600/10 border border-transparent hover:border-green-500/30"
+                            onClick={handleCopy}
+                            title="复制完整 JSON（params + constraint + models）"
+                        >
+                            {copied ? '✓ 已复制' : '📋 复制'}
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-auto">
+                        {/* ── Params tab ── */}
+                        {activeTab === 'params' && (
+                            buildSteps.length > 0 ? (
+                                <div className="px-4 py-3 flex flex-col gap-2">
+                                    {buildSteps.map((step) => {
+                                        const color = BUILD_STEP_COLORS[step.index % BUILD_STEP_COLORS.length];
+                                        return (
+                                            <div key={step.index} className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                                        style={{ backgroundColor: color }}
+                                                    >
+                                                        {step.index}
+                                                    </span>
+                                                    <span className="text-xs font-mono text-gray-200">{step.label}</span>
+                                                </div>
+                                                {step.index === 0 && selectedDef && (
+                                                    <pre className="pl-7 text-[10px] leading-snug font-mono text-gray-400 whitespace-pre-wrap break-all">
+                                                        {JSON.stringify(selectedDef.params, null, 2)}
+                                                    </pre>
+                                                )}
+                                                {step.index > 0 && selectedDef?.bool?.[step.index - 1] && (
+                                                    <pre className="pl-7 text-[10px] leading-snug font-mono text-gray-400 whitespace-pre-wrap break-all">
+                                                        {JSON.stringify(selectedDef.bool[step.index - 1].shape, null, 2)}
+                                                    </pre>
+                                                )}
+                                                {step.index < buildSteps.length - 1 && (
+                                                    <div className="pl-2.5 text-gray-600 text-xs">↓</div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="mt-2 pt-2 border-t border-gray-700/40">
+                                        <span className="text-[10px] text-gray-500 uppercase">完整定义</span>
+                                        <pre className="mt-1 text-[10px] leading-snug font-mono text-green-300/80 whitespace-pre-wrap break-all">
+                                            {JSON.stringify(selectedDef, null, 2)}
+                                        </pre>
                                     </div>
-                                );
-                            })}
-                            {/* Final result summary */}
-                            <div className="mt-2 pt-2 border-t border-gray-700/40">
-                                <span className="text-[10px] text-gray-500 uppercase">完整定义</span>
-                                <pre className="mt-1 text-[10px] leading-snug font-mono text-green-300/80 whitespace-pre-wrap break-all">
-                                    {JSON.stringify(selectedDef, null, 2)}
+                                </div>
+                            ) : (
+                                <pre className="px-4 py-3 text-[11px] leading-relaxed font-mono text-green-300/90 whitespace-pre-wrap break-words">
+                                    {JSON.stringify(defs, null, 2)}
                                 </pre>
+                            )
+                        )}
+
+                        {/* ── Constraint tab ── */}
+                        {activeTab === 'constraint' && (
+                            <div className="px-4 py-3 flex flex-col gap-3">
+                                {constraints.length === 0 ? (
+                                    <p className="text-xs text-gray-500">暂无约束数据</p>
+                                ) : (
+                                    constraints.map((c, i) => (
+                                        <div key={c.name} className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                                    style={{ backgroundColor: BUILD_STEP_COLORS[i % BUILD_STEP_COLORS.length] }}
+                                                >
+                                                    {i}
+                                                </span>
+                                                <span className="text-xs font-mono text-blue-300">{c.name}</span>
+                                                <span className="text-[10px] text-gray-500 ml-auto">= {formatValue(c.value)}</span>
+                                            </div>
+                                            {c.description && (
+                                                <p className="pl-7 text-[10px] text-gray-500 leading-snug">{c.description}</p>
+                                            )}
+                                            {c.bindings.length > 0 && (
+                                                <div className="pl-7 flex flex-col gap-0.5">
+                                                    {c.bindings.map((b, bi) => (
+                                                        <div key={bi} className="text-[10px] font-mono text-gray-400">
+                                                            <span className="text-gray-600">def[{b.def}].</span>
+                                                            <span className="text-amber-400">{b.path}</span>
+                                                            <span className="text-gray-600"> = </span>
+                                                            <span className="text-orange-300">{b.expr}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))
+                                )}
+                                {/* Raw JSON */}
+                                <div className="mt-2 pt-2 border-t border-gray-700/40">
+                                    <span className="text-[10px] text-gray-500 uppercase">原始 JSON</span>
+                                    <pre className="mt-1 text-[10px] leading-snug font-mono text-green-300/80 whitespace-pre-wrap break-all">
+                                        {JSON.stringify(constraints, null, 2)}
+                                    </pre>
+                                </div>
                             </div>
-                        </div>
-                    ) : (
-                        <pre className="px-4 py-3 text-[11px] leading-relaxed font-mono text-green-300/90 whitespace-pre-wrap break-words">
-                            {JSON.stringify(defs, null, 2)}
-                        </pre>
-                    )}
-                </div>
+                        )}
+
+                        {/* ── Models tab ── */}
+                        {activeTab === 'models' && (
+                            <div className="px-4 py-3 flex flex-col gap-3">
+                                {glbModels.length === 0 ? (
+                                    <p className="text-xs text-gray-500">暂无模型数据</p>
+                                ) : (
+                                    glbModels.map((m, i) => (
+                                        <div key={i} className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                                    style={{ backgroundColor: BUILD_STEP_COLORS[i % BUILD_STEP_COLORS.length] }}
+                                                >
+                                                    {i}
+                                                </span>
+                                                <span className="text-xs font-mono text-amber-300">{m.label}</span>
+                                            </div>
+                                            <div className="pl-7 flex flex-col gap-0.5 text-[10px] font-mono text-gray-400">
+                                                <div><span className="text-gray-600">glb: </span><span className="text-gray-300 truncate">{m.glb}</span></div>
+                                                <div><span className="text-gray-600">pos: </span>({formatValue(m.position.x)}, {formatValue(m.position.y)}, {formatValue(m.position.z)})</div>
+                                                <div><span className="text-gray-600">rot: </span>({formatValue(m.rotation.x)}, {formatValue(m.rotation.y)}, {formatValue(m.rotation.z)})</div>
+                                                <div><span className="text-gray-600">scl: </span>({formatValue(m.scale.x)}, {formatValue(m.scale.y)}, {formatValue(m.scale.z)})</div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                                {/* Raw JSON */}
+                                <div className="mt-2 pt-2 border-t border-gray-700/40">
+                                    <span className="text-[10px] text-gray-500 uppercase">原始 JSON</span>
+                                    <pre className="mt-1 text-[10px] leading-snug font-mono text-green-300/80 whitespace-pre-wrap break-all">
+                                        {JSON.stringify(glbModels, null, 2)}
+                                    </pre>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     );
@@ -1006,11 +1157,78 @@ function VariablesPanel({
     );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── GLB Model Transform Editor ─────────────────────────────────────────────
+
+function GlbTransformEditor({
+    model,
+    onChange,
+}: {
+    model: GlbModelItem;
+    onChange: (update: Partial<GlbModelItem>) => void;
+}) {
+    const setAxis = useCallback(
+        (key: 'position' | 'rotation' | 'scale', axis: 'x' | 'y' | 'z', val: number) => {
+            const cur = { ...model[key] };
+            cur[axis] = val;
+            onChange({ [key]: cur });
+        },
+        [model, onChange],
+    );
+
+    return (
+        <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">变换</span>
+
+            {/* Position */}
+            <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-emerald-400/70 font-mono">位置</span>
+                {TRANSFORM_AXES.map(axis => (
+                    <SliderRow
+                        key={axis}
+                        label={axis.toUpperCase()}
+                        value={model.position[axis]}
+                        min={-20} max={20} step={0.1}
+                        onChange={v => setAxis('position', axis, v)}
+                    />
+                ))}
+            </div>
+
+            {/* Rotation */}
+            <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-purple-400/70 font-mono">旋转</span>
+                {TRANSFORM_AXES.map(axis => (
+                    <SliderRow
+                        key={axis}
+                        label={axis.toUpperCase()}
+                        value={model.rotation[axis]}
+                        min={-Math.PI} max={Math.PI} step={0.01}
+                        onChange={v => setAxis('rotation', axis, v)}
+                    />
+                ))}
+            </div>
+
+            {/* Scale */}
+            <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-amber-400/70 font-mono">缩放</span>
+                {TRANSFORM_AXES.map(axis => (
+                    <SliderRow
+                        key={axis}
+                        label={axis.toUpperCase()}
+                        value={model.scale[axis]}
+                        min={0.05} max={10} step={0.05}
+                        onChange={v => setAxis('scale', axis, v)}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
 
 export function App() {
     const [defs, setDefs] = useState<ParametricDef[]>(INITIAL_DEFS);
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+    const [bottomTab, setBottomTab] = useState<'shapes' | 'models'>('shapes');
     // 约束数据（从 demo.json 的 constraint 字段初始化）
     const [constraints, setConstraints] = useState<ConstraintEntry[]>(INITIAL_CONSTRAINTS);
     // 变量从 constraints 中直接提取
@@ -1030,6 +1248,9 @@ export function App() {
     // Stable refs for Three.js objects (not causing re-renders)
     const defGroupsRef = useRef<DefGroup[]>([]);
     const addCommandRef = useRef<AddModelCommand | null>(null);
+    const [glbModels, setGlbModels] = useState<GlbModelItem[]>([]);
+    const glbGroupsRef = useRef<THREE.Group[]>([]);
+    const [selectedGlbIndex, setSelectedGlbIndex] = useState<number | null>(null);
 
     // 变量变化时同步到 ConstraintSystem 并重建所有有绑定的实体
     useEffect(() => {
@@ -1076,27 +1297,50 @@ export function App() {
         groups.forEach(dg => wrapper.add(dg.group.clone()));
         scene3d.focusOn(wrapper);
 
-        // Wire selection callback
-        scene3d.onSelect = (idx) => setSelectedIndex(idx);
-
-        // Wire move callback: sync ParametricDef position when dragged in 3D
-        // Coordinate conversion (Three.js Y-up → model Z-up):
-        //   def.x = group.x, def.y = group.z, def.z = group.y
-        scene3d.onMove = (index, position) => {
-            setDefs(prev => prev.map((d, i) => {
-                if (i !== index) return d;
-                return {
-                    ...d,
-                    position: { x: position.x, y: position.z, z: position.y },
-                };
-            }));
+        // Wire selection callback — supports both parametric defs (≥0) and GLB models (<0)
+        scene3d.onSelect = (idx) => {
+            if (idx === null) {
+                setSelectedIndex(null);
+                setSelectedGlbIndex(null);
+            } else if (idx >= 0) {
+                setSelectedIndex(idx);
+                setSelectedGlbIndex(null);
+            } else {
+                setSelectedIndex(null);
+                setSelectedGlbIndex(-(idx + 1));
+            }
         };
+
+        // Wire move callback: sync position when dragged in 3D
+        // Parametric defs: coordinate conversion (Three.js Y-up → model Z-up)
+        // GLB models: direct Three.js coords
+        scene3d.onMove = (index, position) => {
+            if (index >= 0) {
+                setDefs(prev => prev.map((d, i) => {
+                    if (i !== index) return d;
+                    return { ...d, position: { x: position.x, y: position.z, z: position.y } };
+                }));
+            } else {
+                const gi = -(index + 1);
+                setGlbModels(prev => prev.map((m, i) => {
+                    if (i !== gi) return m;
+                    return { ...m, position: { x: position.x, y: position.y, z: position.z } };
+                }));
+            }
+        };
+
+        // Load initial GLB models from demo.json
+        INITIAL_GLB_MODELS.forEach((modelData) => {
+            loadGlbModelToScene(modelData);
+        });
 
         return () => {
             scene3d!.onSelect = null;
             scene3d!.onMove = null;
             addCommandRef.current?.onComplete();
             groups.forEach(dg => scene3d!.removeDefGroup(dg.group));
+            glbGroupsRef.current.forEach(g => scene3d!.removeDefGroup(g));
+            glbGroupsRef.current = [];
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -1298,6 +1542,113 @@ export function App() {
         addCommandRef.current = cmd;
     }, [cs]);
 
+    // 加载 GLB 模型到场景并跟踪数据
+    const loadGlbModelToScene = useCallback((modelData: GlbModelItem) => {
+        if (!scene3d) return;
+        gltfLoader.load(modelData.glb, (gltf) => {
+            const group = new THREE.Group();
+            group.add(gltf.scene);
+            group.position.set(modelData.position.x, modelData.position.y, modelData.position.z);
+            group.rotation.set(modelData.rotation.x, modelData.rotation.y, modelData.rotation.z);
+            group.scale.set(modelData.scale.x, modelData.scale.y, modelData.scale.z);
+
+            const gi = glbGroupsRef.current.length;
+            const negIndex = -(gi + 1);
+            scene3d!.addDefGroup(group, negIndex);
+            glbGroupsRef.current.push(group);
+            setGlbModels(prev => [...prev, modelData]);
+        });
+    }, []);
+
+    // 添加 GLB 模型：通过 AddModelCommand 交互式放置
+    const handleAddGlbModel = useCallback((glbUrl: string, label: string) => {
+        if (!scene3d) return;
+        addCommandRef.current?.onComplete();
+
+        gltfLoader.load(glbUrl, (gltf) => {
+            // 创建半透明 ghost 预览
+            const ghost = gltf.scene.clone(true);
+            ghost.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    const srcMat = child.material as THREE.MeshStandardMaterial;
+                    child.material = new THREE.MeshStandardMaterial({
+                        color: srcMat.color?.clone() ?? new THREE.Color(0xffffff),
+                        transparent: true,
+                        opacity: 0.5,
+                        depthWrite: false,
+                    });
+                }
+            });
+
+            const cmd = new AddModelCommand(scene3d);
+            cmd.setGhost(ghost);
+            cmd.onConfirm = (position: THREE.Vector3) => {
+                addCommandRef.current = null;
+                // 加载实际模型并放置到场景中
+                gltfLoader.load(glbUrl, (gltf2) => {
+                    const group = new THREE.Group();
+                    group.add(gltf2.scene);
+                    group.position.copy(position);
+
+                    const gi = glbGroupsRef.current.length;
+                    const negIndex = -(gi + 1);
+                    scene3d!.addDefGroup(group, negIndex);
+                    glbGroupsRef.current.push(group);
+
+                    const newModel: GlbModelItem = {
+                        glb: glbUrl,
+                        label,
+                        position: { x: position.x, y: position.y, z: position.z },
+                        rotation: { x: 0, y: 0, z: 0 },
+                        scale: { x: 1, y: 1, z: 1 },
+                    };
+                    setGlbModels(prev => [...prev, newModel]);
+                    setSelectedGlbIndex(gi);
+                    setSelectedIndex(null);
+                    scene3d!.selectByIndex(negIndex);
+                });
+            };
+            cmd.onCancel = () => {
+                addCommandRef.current = null;
+            };
+            cmd.onExecute();
+            addCommandRef.current = cmd;
+        });
+    }, []);
+
+    // GLB 模型变换同步
+    const handleGlbTransformChange = useCallback((index: number, update: Partial<GlbModelItem>) => {
+        setGlbModels(prev => prev.map((m, i) => {
+            if (i !== index) return m;
+            return { ...m, ...update };
+        }));
+        const group = glbGroupsRef.current[index];
+        if (group) {
+            if (update.position) group.position.set(update.position.x, update.position.y, update.position.z);
+            if (update.rotation) group.rotation.set(update.rotation.x, update.rotation.y, update.rotation.z);
+            if (update.scale) group.scale.set(update.scale.x, update.scale.y, update.scale.z);
+        }
+    }, []);
+
+    // 删除 GLB 模型
+    const handleDeleteGlbModel = useCallback((index: number) => {
+        if (!scene3d) return;
+        const group = glbGroupsRef.current[index];
+        if (group) scene3d.removeDefGroup(group);
+        glbGroupsRef.current.splice(index, 1);
+        // Re-register remaining GLB groups with new negative indices
+        glbGroupsRef.current.forEach((g, i) => {
+            scene3d!.addDefGroup(g, -(i + 1));
+        });
+        setSelectedGlbIndex(prev => {
+            if (prev === null) return null;
+            if (prev === index) return null;
+            if (prev > index) return prev - 1;
+            return prev;
+        });
+        setGlbModels(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
     const selectedDef = selectedIndex !== null ? defs[selectedIndex] : null;
     const selectedDg = selectedIndex !== null ? defGroupsRef.current[selectedIndex] : null;
 
@@ -1315,22 +1666,73 @@ export function App() {
             </div>
 
             {/* Right panel: live ParametricDef data */}
-            <DefDataPanel defs={defs} selectedIndex={selectedIndex} />
+            <DefDataPanel defs={defs} selectedIndex={selectedIndex} constraints={constraints} glbModels={glbModels} />
 
-            {/* Bottom panel: add 3D primitives */}
-            <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900/95 rounded-lg border border-gray-700 px-2 py-2">
-                <div className="flex flex-wrap justify-center gap-1">
-                    {PRIMITIVE_3D_PRESETS.map(p => (
-                        <button
-                            key={p.type}
-                            className="w-[3.5rem] h-[2rem] bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 text-center flex items-center justify-center"
-                            title={`添加 ${p.label} (${p.type})`}
-                            onClick={() => handleAddEntity(p)}
-                        >
-                            {p.label}
-                        </button>
-                    ))}
+            {/* Bottom panel */}
+            <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900/95 rounded-lg border border-gray-700 px-2 py-2 w-[680px]">
+                {/* Tabs */}
+                <div className="flex items-center gap-1 mb-2 border-b border-gray-700/60 pb-1.5">
+                    <button
+                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            bottomTab === 'shapes'
+                                ? 'text-white bg-blue-600/40 border border-blue-500/50'
+                                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 border border-transparent'
+                        }`}
+                        onClick={() => setBottomTab('shapes')}
+                    >
+                        形状
+                    </button>
+                    <button
+                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            bottomTab === 'models'
+                                ? 'text-white bg-blue-600/40 border border-blue-500/50'
+                                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 border border-transparent'
+                        }`}
+                        onClick={() => setBottomTab('models')}
+                    >
+                        模型
+                    </button>
                 </div>
+                {/* Tab content */}
+                {bottomTab === 'shapes' && (
+                    <div className="flex flex-wrap justify-center gap-1">
+                        {PRIMITIVE_3D_PRESETS.map(p => (
+                            <button
+                                key={p.type}
+                                className="w-[3.5rem] h-[2rem] bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 text-center flex items-center justify-center"
+                                title={`添加 ${p.label} (${p.type})`}
+                                onClick={() => handleAddEntity(p)}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {bottomTab === 'models' && (
+                    <div className="flex flex-wrap justify-center gap-1">
+                        <button
+                            className="h-[2rem] px-3 bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 flex items-center justify-center gap-1"
+                            title="添加木板模型"
+                            onClick={() => handleAddGlbModel(woodPlanksGlb, '木板')}
+                        >
+                            木板
+                        </button>
+                        <button
+                            className="h-[2rem] px-3 bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 flex items-center justify-center gap-1"
+                            title="添加单块木板模型"
+                            onClick={() => handleAddGlbModel(woodenPlankGlb, '单块木板')}
+                        >
+                            单块木板
+                        </button>
+                        <button
+                            className="h-[2rem] px-3 bg-gray-800 hover:bg-blue-600/40 rounded text-[10px] leading-tight text-gray-300 hover:text-white transition-colors border border-gray-700/50 hover:border-blue-500/50 flex items-center justify-center gap-1"
+                            title="添加木板块模型"
+                            onClick={() => handleAddGlbModel(woodPlanksBlockGlb, '木板块')}
+                        >
+                            木板块
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Left panel */}
@@ -1349,11 +1751,13 @@ export function App() {
                                 tabIndex={0}
                                 onClick={() => {
                                     setSelectedIndex(i);
+                                    setSelectedGlbIndex(null);
                                     scene3d?.selectByIndex(i);
                                 }}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {
                                         setSelectedIndex(i);
+                                        setSelectedGlbIndex(null);
                                         scene3d?.selectByIndex(i);
                                     }
                                 }}
@@ -1401,7 +1805,58 @@ export function App() {
                         ))}
                     </div>
                 </div>
-
+                
+                {/* GLB 模型列表 */}
+                {glbModels.length > 0 && (
+                    <div className="px-4 py-3 border-b border-gray-700/60">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">模型列表</span>
+                        <div className="flex flex-col gap-1 mt-2">
+                            {glbModels.map((model, i) => (
+                                <div
+                                    key={i}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => {
+                                        setSelectedGlbIndex(i);
+                                        setSelectedIndex(null);
+                                        scene3d?.selectByIndex(-(i + 1));
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            setSelectedGlbIndex(i);
+                                            setSelectedIndex(null);
+                                            scene3d?.selectByIndex(-(i + 1));
+                                        }
+                                    }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors cursor-pointer ${
+                                        selectedGlbIndex === i
+                                            ? 'bg-blue-600/30 border border-blue-500/40'
+                                            : 'bg-gray-800/60 border border-transparent hover:bg-gray-700/60'
+                                    }`}
+                                >
+                                    <span className="w-5 h-5 rounded-sm shrink-0 bg-amber-900/40 flex items-center justify-center text-[10px] text-amber-400">📦</span>
+                                    <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-mono text-gray-200">{model.label}</span>
+                                            <div className="flex items-center gap-1 ml-auto shrink-0">
+                                                <span className="text-[11px] text-gray-500">M{i}</span>
+                                                <button
+                                                    className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors px-0.5"
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteGlbModel(i); }}
+                                                    title="删除模型"
+                                                >✕</button>
+                                            </div>
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 font-mono">
+                                            pos({model.position.x.toFixed(1)}, {model.position.y.toFixed(1)}, {model.position.z.toFixed(1)})
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                
                 {/* 约束变量管理 */}
                 <VariablesPanel
                     constraints={constraints}
@@ -1458,6 +1913,29 @@ export function App() {
                                     bindings={getBindingsForDef(selectedIndex!, constraints)}
                                     onBindingsChange={newBindings => handleBindingsChange(selectedIndex!, newBindings)}
                                 />
+                            </div>
+                        </div>
+                    </div>
+                ) : selectedGlbIndex !== null && glbModels[selectedGlbIndex] ? (
+                    <div className="flex-1 overflow-y-auto">
+                        {/* GLB 模型变换编辑 */}
+                        <div className="px-4 py-3 border-b border-gray-700/60">
+                            <GlbTransformEditor
+                                model={glbModels[selectedGlbIndex]}
+                                onChange={update => handleGlbTransformChange(selectedGlbIndex!, update)}
+                            />
+                        </div>
+                        <div className="px-4 py-3">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">模型信息</span>
+                            <div className="mt-2 flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] text-gray-500 font-mono w-12">名称</span>
+                                    <span className="text-xs text-gray-200 font-mono">{glbModels[selectedGlbIndex].label}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] text-gray-500 font-mono w-12">文件</span>
+                                    <span className="text-[10px] text-gray-400 font-mono truncate">{glbModels[selectedGlbIndex].glb}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
