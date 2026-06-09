@@ -2,6 +2,7 @@ const path = require('path');
 
 /** @type {import('webpack').Configuration} */
 module.exports = {
+  context: __dirname,
   entry: {
     main: './src/index.tsx',
   },
@@ -39,7 +40,18 @@ module.exports = {
       },
       {
         test: /\.css$/,
-        use: ['style-loader', 'css-loader', 'postcss-loader'],
+        use: [
+          'style-loader',
+          'css-loader',
+          {
+            loader: 'postcss-loader',
+            options: {
+              postcssOptions: {
+                config: path.resolve(__dirname, 'postcss.config.js'),
+              },
+            },
+          },
+        ],
       },
       {
         test: /\.(png|jpe?g|gif|svg|webp)$/i,
