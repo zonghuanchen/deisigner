@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { MaterialData } from '@designer/pm-engine';
-import { TEXTURE_OPTIONS, requireTexture } from './constants';
+import { TEXTURE_OPTIONS, requireTexture } from '@designer/pm-engine';
 import { SliderRow } from './SliderRow';
 
 export function MaterialEditor({

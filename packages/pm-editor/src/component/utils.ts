@@ -5,10 +5,11 @@ import {
     applyDefTransform,
     createThreeMaterial,
     jscadToBufferGeometry,
+    TEXTURE_OPTIONS,
+    requireTexture,
 } from '@designer/pm-engine';
 import type { ParametricDef, BindingMap } from '@designer/pm-engine';
 import type { ConstraintEntry, DefGroup } from './types';
-import { TEXTURE_OPTIONS, requireTexture } from './constants';
 
 // 纹理缓存，避免重复加载
 const textureCache = new Map<string, THREE.Texture>();

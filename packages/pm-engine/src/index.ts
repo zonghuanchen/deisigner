@@ -9,3 +9,7 @@ export type { ParametricDef, MaterialData, TransformData, ShapeDef, BooleanOp, P
 export { applyDefTransform, createThreeMaterial, updateThreeMaterial, jscadToBufferGeometry, buildMeshGroup } from './ThreeHelper';
 export { ConstraintSystem } from './ConstraintSystem';
 export type { VariableMap, EvalResult } from './ConstraintSystem';
+
+// Asset Registry
+export { TEXTURE_OPTIONS, GLB_OPTIONS, registerAssetResolvers, requireTexture, requireGlb } from './AssetRegistry';
+export type { TextureOption, GlbOption } from './AssetRegistry';

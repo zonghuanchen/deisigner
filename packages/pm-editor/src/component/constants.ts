@@ -1,52 +1,21 @@
-import type { TextureOption } from './types';
+import { registerAssetResolvers } from '@designer/pm-engine';
 
-// 静态 require 映射 —— webpack 可在编译期解析每个字面量路径
-const TEXTURE_REQUIRE_MAP: Record<string, string> = {
-    '@designer/assets/material-0.jpg': require('@designer/assets/material-0.jpg'),
-    '@designer/assets/material-1.jpg': require('@designer/assets/material-1.jpg'),
-    '@designer/assets/material-2.jpg': require('@designer/assets/material-2.jpg'),
-    '@designer/assets/material-3.jpg': require('@designer/assets/material-3.jpg'),
-    '@designer/assets/material-4.jpg': require('@designer/assets/material-4.jpg'),
-    '@designer/assets/material-5.jpg': require('@designer/assets/material-5.jpg'),
-};
-
-// 材质纹理贴图 —— url 存储原始模块路径，可在 editor / pm-editor 间共享
-export const TEXTURE_OPTIONS: TextureOption[] = [
-    { label: '纹理 0', url: '@designer/assets/material-0.jpg' },
-    { label: '纹理 1', url: '@designer/assets/material-1.jpg' },
-    { label: '纹理 2', url: '@designer/assets/material-2.jpg' },
-    { label: '纹理 3', url: '@designer/assets/material-3.jpg' },
-    { label: '纹理 4', url: '@designer/assets/material-4.jpg' },
-    { label: '纹理 5', url: '@designer/assets/material-5.jpg' },
-];
-
-/** 将原始模块路径解析为 webpack 资源 URL（通过静态映射） */
-export function requireTexture(rawPath: string): string {
-    const resolved = TEXTURE_REQUIRE_MAP[rawPath];
-    if (!resolved) throw new Error(`requireTexture: unknown path "${rawPath}"`);
-    return resolved;
-}
-
-// GLB 模型静态 require 映射
-const GLB_REQUIRE_MAP: Record<string, string> = {
-    '@designer/assets/WoodPlanks.glb': require('@designer/assets/WoodPlanks.glb'),
-    '@designer/assets/WoodenPlank.glb': require('@designer/assets/WoodenPlank.glb'),
-    '@designer/assets/WoodPlanksBlock.glb': require('@designer/assets/WoodPlanksBlock.glb'),
-};
-
-// GLB 模型选项 —— glb 字段存储原始模块路径
-export const GLB_OPTIONS = [
-    { label: '木板',     glb: '@designer/assets/WoodPlanks.glb' },
-    { label: '单块木板', glb: '@designer/assets/WoodenPlank.glb' },
-    { label: '木板块',   glb: '@designer/assets/WoodPlanksBlock.glb' },
-];
-
-/** 将 GLB 原始模块路径解析为 webpack 资源 URL */
-export function requireGlb(rawPath: string): string {
-    const resolved = GLB_REQUIRE_MAP[rawPath];
-    if (!resolved) throw new Error(`requireGlb: unknown path "${rawPath}"`);
-    return resolved;
-}
+// 注册 webpack require() 解析后的资源 URL 映射
+registerAssetResolvers({
+    textures: {
+        '@designer/assets/material-0.jpg': require('@designer/assets/material-0.jpg'),
+        '@designer/assets/material-1.jpg': require('@designer/assets/material-1.jpg'),
+        '@designer/assets/material-2.jpg': require('@designer/assets/material-2.jpg'),
+        '@designer/assets/material-3.jpg': require('@designer/assets/material-3.jpg'),
+        '@designer/assets/material-4.jpg': require('@designer/assets/material-4.jpg'),
+        '@designer/assets/material-5.jpg': require('@designer/assets/material-5.jpg'),
+    },
+    glbs: {
+        '@designer/assets/WoodPlanks.glb': require('@designer/assets/WoodPlanks.glb'),
+        '@designer/assets/WoodenPlank.glb': require('@designer/assets/WoodenPlank.glb'),
+        '@designer/assets/WoodPlanksBlock.glb': require('@designer/assets/WoodPlanksBlock.glb'),
+    },
+});
 
 export const SIZE_AXIS_LABELS = ['X', 'Y', 'Z'];
 

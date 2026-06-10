@@ -1,10 +1,7 @@
-import type { MaterialData, ParametricDef } from '@designer/pm-engine';
+import type { MaterialData, ParametricDef, TextureOption } from '@designer/pm-engine';
 import type * as THREE from 'three';
 
-export interface TextureOption {
-    label: string;
-    url: string;
-}
+export type { TextureOption };
 
 export interface DefGroup {
     group: THREE.Group;

@@ -6,6 +6,10 @@ import {
     applyDefTransform,
     updateThreeMaterial,
     jscadToBufferGeometry,
+    TEXTURE_OPTIONS,
+    requireTexture,
+    GLB_OPTIONS,
+    requireGlb,
 } from '@designer/pm-engine';
 import type { ParametricDef, BindingMap, VariableMap, MaterialData } from '@designer/pm-engine';
 import * as THREE from 'three';
@@ -18,10 +22,6 @@ import {
     type GlbModelItem,
     type DemoData,
     type DefGroup,
-    TEXTURE_OPTIONS,
-    requireTexture,
-    GLB_OPTIONS,
-    requireGlb,
     PRIMITIVE_3D_PRESETS,
     loadTexture,
     buildGroup,

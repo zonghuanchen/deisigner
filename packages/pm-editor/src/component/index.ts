@@ -3,10 +3,6 @@ export type { TextureOption, DefGroup, ConstraintEntry, Vec3Data, GlbModelItem, 
 
 // Constants
 export {
-    TEXTURE_OPTIONS,
-    requireTexture,
-    GLB_OPTIONS,
-    requireGlb,
     SIZE_AXIS_LABELS,
     TRANSFORM_AXES,
     BOOL_TYPE_LABELS,
