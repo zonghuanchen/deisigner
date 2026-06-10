@@ -10,6 +10,7 @@
   "dependencies": {
     "@designer/core": "*",
     "@designer/app": "*",
+    "@designer/assets": "*",
     "@heroui/react": "^2.7.0",
     "@jscad/modeling": "^2.13.0",
     "pixi.js": "^8.6.0",

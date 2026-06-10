@@ -19,6 +19,7 @@ module.exports = {
     alias: {
       '@designer/core': path.resolve(__dirname, '../core/src'),
       '@designer/app': path.resolve(__dirname, '../app/src'),
+      '@designer/assets': path.resolve(__dirname, '../assets'),
     },
     fallback: {
       path: false,

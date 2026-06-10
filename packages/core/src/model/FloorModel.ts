@@ -2,6 +2,7 @@ import { BaseModel } from './BaseModel';
 import { WallModel } from './WallModel';
 import { FurnitureModel } from './FurnitureModel';
 import { ParametricModel } from './ParametricModel';
+import { ParametricModelV2 } from './ParametricModelV2';
 import { ModelRegistry } from '../ModelRegistry';
 import { FLOOR_MODEL } from '../types';
 
@@ -128,6 +129,20 @@ export class FloorModel extends BaseModel {
       * Removes a parametric model from this floor by instance or id
       */
     removeParametric(parametric: ParametricModel | string): void {
+        this.removeChild(parametric);
+    }
+
+    /**
+      * Adds a parametric V2 model to this floor
+      */
+    addParametricV2(parametric: ParametricModelV2): void {
+        this.addChild(parametric);
+    }
+
+    /**
+      * Removes a parametric V2 model from this floor by instance or id
+      */
+    removeParametricV2(parametric: ParametricModelV2 | string): void {
         this.removeChild(parametric);
     }
 

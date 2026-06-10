@@ -37,7 +37,7 @@ import {
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
-const DEMO_DATA: DemoData = require('./demo.json');
+const DEMO_DATA: DemoData = require('@designer/assets/closet.json');
 const INITIAL_DEFS: ParametricDef[] = DEMO_DATA.params;
 const INITIAL_CONSTRAINTS: ConstraintEntry[] = DEMO_DATA.constraint;
 const INITIAL_GLB_MODELS: GlbModelItem[] = DEMO_DATA.models ?? [];

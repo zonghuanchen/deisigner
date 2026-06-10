@@ -10,3 +10,4 @@ export * from './RoomModel';
 export * from './SceneModel';
 export * from './FurnitureModel';
 export * from './ParametricModel';
+export * from './ParametricModelV2';

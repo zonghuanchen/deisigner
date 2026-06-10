@@ -15,6 +15,7 @@ import './display/Room';
 import './display/Face';
 import './display/Furniture';
 import './display/Parametric';
+import './display/ParametricV2';
 
 export class Scene3DManager {
     private static instance: Scene3DManager;
@@ -275,6 +276,10 @@ export class Scene3DManager {
 
     getControls(): CameraModelOrbitControls {
         return this.controls;
+    }
+
+    getDevice(): Device | null {
+        return this.device;
     }
 
     setRendererContainer(container: HTMLElement) {

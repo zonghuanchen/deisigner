@@ -31,6 +31,9 @@ class EmitPackageJsonPlugin {
 const commonConfig = {
   resolve: {
     extensions: ['.ts', '.js', '.json'],
+    alias: {
+      '@designer/assets': path.resolve(__dirname, '../assets'),
+    },
   },
   externals: {
     three: {
@@ -64,6 +67,10 @@ const commonConfig = {
             configFile: path.resolve(__dirname, 'tsconfig.build.json'),
           },
         },
+      },
+      {
+        test: /\.(png|jpe?g|gif|svg|webp|glb|gltf)$/i,
+        type: 'asset/resource',
       },
     ],
   },

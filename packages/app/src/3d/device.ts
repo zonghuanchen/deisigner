@@ -3,16 +3,34 @@ import { SelectionManager } from '@designer/core';
 import { DisplayObject3D } from './display/DisplayObject3D';
 import { Scene } from './display/Scene';
 
+/** Click detection thresholds */
+const CLICK_MAX_TIME_MS = 300;
+const CLICK_MAX_DISTANCE_MM = 10; // world-space 10mm
+/** Drag threshold in screen pixels – once exceeded, fire dragstart */
+const DRAG_THRESHOLD_PX = 3;
+
 /**
  * Device handles canvas interaction: raycasting, picking, and selection.
- * Drag-to-move logic is handled by MoveModelCommand, activated via
- * SelectionManager 'select' events on pointerdown.
+ * Uses a deferred-selection pattern: pointerdown raycasts and stores the hit,
+ * pointerup only triggers selection if time < 300ms and 2D world-space
+ * distance < 10mm (prevents accidental selection during orbit / drag).
+ * Drag-to-move is handled by MoveModelCommand, activated via selection
+ * dispatch on pointermove once the click threshold is exceeded.
  */
 export class Device {
     private raycaster = new THREE.Raycaster();
     private camera: THREE.PerspectiveCamera;
     private domElement: HTMLElement;
     private selectionManager: SelectionManager;
+
+    // Deferred-selection state
+    private pendingHit: import('@designer/core/model/BaseModel').BaseModel | null = null;
+    private pointerDownTime = 0;
+    private pointerDownClientX = 0;
+    private pointerDownClientY = 0;
+    private pointerDownNdcX = 0;
+    private pointerDownNdcY = 0;
+    private dragInitiated = false;
 
     constructor(
         camera: THREE.PerspectiveCamera,
@@ -23,35 +41,106 @@ export class Device {
         this.domElement = domElement;
         this.selectionManager = selectionManager;
 
+        // ESC to clear selection
+        window.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                this.selectionManager.clear();
+            }
+        });
+
         this.setupPicking();
     }
 
     private setupPicking() {
-        // Select on pointerdown so MoveModelCommand can capture the initial
-        // pointer position and handle drag on subsequent pointermove events.
         this.domElement.addEventListener('pointerdown', (e: PointerEvent) => {
-            const model = this.raycast(e);
-            if (model) {
-                const alreadySelected = this.selectionManager.isSelected(model);
-                this.selectionManager.select(model);
-                // When the model is already selected, SelectionManager.select()
-                // returns early without dispatching 'select'.  Re-dispatch it
-                // so MoveModelCommand is (re-)activated for the new drag gesture.
-                if (alreadySelected) {
-                    this.selectionManager.dispatchEvent({ type: 'select', model });
-                }
+            this.pendingHit = this.raycast(e);
+            this.pointerDownTime = performance.now();
+            this.pointerDownClientX = e.clientX;
+            this.pointerDownClientY = e.clientY;
+            const ndc = this.clientToNdc(e);
+            this.pointerDownNdcX = ndc.x;
+            this.pointerDownNdcY = ndc.y;
+            this.dragInitiated = false;
+        });
+
+        this.domElement.addEventListener('pointermove', (e: PointerEvent) => {
+            if (!this.pendingHit || this.dragInitiated) return;
+            // Detect drag: pointer is down and moved beyond threshold
+            if (
+                Math.abs(e.clientX - this.pointerDownClientX) > DRAG_THRESHOLD_PX ||
+                Math.abs(e.clientY - this.pointerDownClientY) > DRAG_THRESHOLD_PX
+            ) {
+                this.dragInitiated = true;
+                // Select the model immediately so drag handler can proceed
+                // this.selectionManager.select(this.pendingHit);
+                this.domElement.dispatchEvent(new CustomEvent('dragstart', {
+                    detail: {
+                        model: this.pendingHit,
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                    },
+                }));
             }
         });
 
-        // Clear selection on pointerup over empty space.
-        // If a model was selected on pointerdown, MoveModelCommand is already
-        // active and will complete itself on pointerup via its own handler.
         this.domElement.addEventListener('pointerup', (e: PointerEvent) => {
-            const model = this.raycast(e);
-            if (!model) {
-                this.selectionManager.clear();
+            if (this.dragInitiated) {
+                // Drag was handled by MoveModelCommand's own pointerup
+                this.pendingHit = null;
+                this.dragInitiated = false;
+                return;
             }
+
+            if (this.pendingHit && this.isClick(e)) {
+                const alreadySelected = this.selectionManager.isSelected(this.pendingHit);
+                this.selectionManager.select(this.pendingHit);
+                if (alreadySelected) {
+                    this.selectionManager.dispatchEvent({ type: 'select', model: this.pendingHit });
+                }
+            } else if (!this.pendingHit) {
+                // pointerdown missed – check pointerup too, clear if still empty
+                const model = this.raycast(e);
+                if (!model) {
+                    this.selectionManager.clear();
+                }
+            }
+
+            this.pendingHit = null;
+            this.dragInitiated = false;
         });
+    }
+
+    /** Returns true if the pointer event is within click thresholds (time & distance). */
+    private isClick(e: PointerEvent): boolean {
+        const dt = performance.now() - this.pointerDownTime;
+        if (dt > CLICK_MAX_TIME_MS) return false;
+        const worldDist = this.screenDistanceToWorld(e);
+        return worldDist < CLICK_MAX_DISTANCE_MM;
+    }
+
+    /** Converts client coords to NDC */
+    private clientToNdc(e: PointerEvent): { x: number; y: number } {
+        const rect = this.domElement.getBoundingClientRect();
+        return {
+            x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            y: -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        };
+    }
+
+    /**
+     * Returns the world-space distance (in mm) between the stored pointerdown
+     * position and the current pointer event, projected onto the camera near plane.
+     */
+    private screenDistanceToWorld(e: PointerEvent): number {
+        const ndc = this.clientToNdc(e);
+        const near = this.camera.near;
+        const v1 = new THREE.Vector3(this.pointerDownNdcX, this.pointerDownNdcY, 0).unproject(this.camera);
+        const v2 = new THREE.Vector3(ndc.x, ndc.y, 0).unproject(this.camera);
+        const dir1 = v1.sub(this.camera.position).normalize();
+        const dir2 = v2.sub(this.camera.position).normalize();
+        const p1 = this.camera.position.clone().add(dir1.multiplyScalar(near));
+        const p2 = this.camera.position.clone().add(dir2.multiplyScalar(near));
+        return p1.distanceTo(p2) * 1000; // meters → mm
     }
 
     /**

@@ -1,22 +1,3 @@
-import { registerAssetResolvers } from '@designer/pm-engine';
-
-// 注册 webpack require() 解析后的资源 URL 映射
-registerAssetResolvers({
-    textures: {
-        '@designer/assets/material-0.jpg': require('@designer/assets/material-0.jpg'),
-        '@designer/assets/material-1.jpg': require('@designer/assets/material-1.jpg'),
-        '@designer/assets/material-2.jpg': require('@designer/assets/material-2.jpg'),
-        '@designer/assets/material-3.jpg': require('@designer/assets/material-3.jpg'),
-        '@designer/assets/material-4.jpg': require('@designer/assets/material-4.jpg'),
-        '@designer/assets/material-5.jpg': require('@designer/assets/material-5.jpg'),
-    },
-    glbs: {
-        '@designer/assets/WoodPlanks.glb': require('@designer/assets/WoodPlanks.glb'),
-        '@designer/assets/WoodenPlank.glb': require('@designer/assets/WoodenPlank.glb'),
-        '@designer/assets/WoodPlanksBlock.glb': require('@designer/assets/WoodPlanksBlock.glb'),
-    },
-});
-
 export const SIZE_AXIS_LABELS = ['X', 'Y', 'Z'];
 
 export const TRANSFORM_AXES = ['x', 'y', 'z'] as const;

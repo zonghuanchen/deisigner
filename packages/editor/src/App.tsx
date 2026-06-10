@@ -5,7 +5,8 @@ import { ModelPanel } from './components';
 import { setupTestScene } from './testScene';
 import { App as CoreApp } from '@designer/core';
 import { AddModelCommand, AddHostModelCommand, DrawWallCommand, MoveModelCommand, MoveHostModelCommand, isDraggable, isHostModel, CommandManager } from './command';
-import { SelectionManager } from '@designer/core';
+import { SelectionManager, BaseModel } from '@designer/core';
+import { FurnitureModel } from '@designer/core/model/FurnitureModel';
 
 export const viewer = new AppViewer({ defaultPrimary: VIEWER_3D });
 viewer.init(
@@ -27,26 +28,29 @@ viewer.init(
     const moveHostCmd = new MoveHostModelCommand(viewer);
     cmdManager.register(moveHostCmd);
 
-    // Activate the appropriate move command when a model is selected
-    const selectionManager = SelectionManager.getInstance();
-    selectionManager.addEventListener('select', ((e: any) => {
-        // Skip auto-move while AddHostModelCommand is actively placing the model
-        if (cmdManager.currentName === 'addHostModel') return;
+    // Activate the appropriate move command when a drag starts on a model.
+    // Device dispatches 'dragstart' on the canvas when pointermove exceeds
+    // the drag threshold while a model is hit — this allows click-drag to
+    // move without requiring a prior selection click.
+    const canvas = viewer.getScene3d()?.getSceneManager().getRenderer().domElement;
+    if (canvas) {
+        canvas.addEventListener('dragstart', ((e: CustomEvent) => {
+            // Skip auto-move while AddHostModelCommand is actively placing the model
+            if (cmdManager.currentName === 'addHostModel') return;
 
-        const pos = viewer.getLastPointerPosition();
-        if (!pos) return;
-        if (isDraggable(e.model)) {
-            // Ordinary furniture model -> MoveModelCommand
-            moveCmd.setModel(e.model, pos.clientX, pos.clientY);
-            cmdManager.execute('moveModel');
-        } else if (isHostModel(e.model)) {
-            // Host model (parametric, door, window) -> MoveHostModelCommand
-            moveHostCmd.setModel(e.model, pos.clientX, pos.clientY);
-            cmdManager.execute('moveHostModel');
-        }
-    }) as any);
+            const { model, clientX, clientY } = e.detail as { model: BaseModel; clientX: number; clientY: number };
+            if (isDraggable(model)) {
+                moveCmd.setModel(model, clientX, clientY);
+                cmdManager.execute('moveModel');
+            } else if (isHostModel(model)) {
+                moveHostCmd.setModel(model as FurnitureModel, clientX, clientY);
+                cmdManager.execute('moveHostModel');
+            }
+        }) as EventListener);
+    }
 
     // Deactivate move commands when selection is cleared
+    const selectionManager = SelectionManager.getInstance();
     selectionManager.addEventListener('clear', (() => {
         const name = cmdManager.currentName;
         if (name === 'moveModel' || name === 'moveHostModel') {

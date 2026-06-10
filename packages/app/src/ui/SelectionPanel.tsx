@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { App as CoreApp } from '@designer/core';
 import { useModelListener } from './util/useModelListener';
 import { ParametricModel } from '@designer/core/model/ParametricModel';
+import { ParametricModelV2 } from '@designer/core/model/ParametricModelV2';
 import { FurnitureModel } from '@designer/core/model/FurnitureModel';
 import { GroundModel } from '@designer/core/model/GroundModel';
 import { CeilingModel } from '@designer/core/model/CeilingModel';
@@ -15,6 +16,7 @@ const TYPE_LABELS: Record<string, string> = {
     FloorModel: '楼层',
     FurnitureModel: '家具',
     ParametricModel: '参数化模型',
+    ParametricModelV2: '参数化模型V2',
     FaceModel: '面',
     GroundModel: '地面',
     CeilingModel: '顶面',
@@ -32,6 +34,7 @@ function getModelType(obj: Record<string, any>, model?: any): string {
     if (obj.outerContour && obj.material) return 'FaceModel';
     if (obj.floorNumber !== undefined) return 'FloorModel';
     if (obj.gltfPath !== undefined) return 'FurnitureModel';
+    if (obj.defCount !== undefined && obj.items !== undefined) return 'ParametricModelV2';
     if (obj.params !== undefined) return 'ParametricModel';
     if (obj.floors !== undefined) return 'SceneModel';
     if (obj.cameraType !== undefined) return 'CameraModel';
@@ -302,7 +305,7 @@ function ParamsSection({ model }: { model: ParametricModel }) {
 }
 
 interface TransformSectionProps {
-    model: ParametricModel | FurnitureModel;
+    model: ParametricModel | ParametricModelV2 | FurnitureModel;
     event?: string;
 }
 
@@ -715,8 +718,9 @@ export function SelectionPanel() {
     const label = TYPE_LABELS[typeKey] ?? typeKey;
 
     const isParametric = firstModel instanceof ParametricModel;
+    const isParametricV2 = firstModel instanceof ParametricModelV2;
     const isFurniture = firstModel instanceof FurnitureModel;
-    const hasTransform = isParametric || isFurniture;
+    const hasTransform = isParametric || isParametricV2 || isFurniture;
     const parametricMaterials = isParametric ? (firstModel as ParametricModel).materials : [];
 
     // Reactive material data from useModelListener
@@ -730,6 +734,11 @@ export function SelectionPanel() {
     if (isParametric) {
         excludeKeys.add('params');
         excludeKeys.add('materials');
+    }
+    if (isParametricV2) {
+        excludeKeys.add('defCount');
+        excludeKeys.add('variables');
+        excludeKeys.add('items');
     }
     const props = Object.entries(first).filter(([k]) => !excludeKeys.has(k));
 
@@ -767,8 +776,8 @@ export function SelectionPanel() {
             {hasTransform && (
                 <div className="px-4 py-3">
                     <TransformSection
-                        model={firstModel as ParametricModel | FurnitureModel}
-                        event={isParametric ? 'transformChange' : 'change'}
+                        model={firstModel as ParametricModel | ParametricModelV2 | FurnitureModel}
+                        event={isParametric ? 'transformChange' : isParametricV2 ? 'dirtyTransform' : 'change'}
                     />
                 </div>
             )}

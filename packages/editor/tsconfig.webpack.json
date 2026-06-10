@@ -16,7 +16,8 @@
       "@designer/core": ["../core/src"],
       "@designer/core/*": ["../core/src/*"],
       "@designer/app": ["../app/src"],
-      "@designer/app/*": ["../app/src/*"]
+      "@designer/app/*": ["../app/src/*"],
+      "@designer/assets/*": ["../assets/*"]
     }
   },
   "include": ["src/**/*", "../core/src/**/*", "../app/src/**/*"]

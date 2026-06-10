@@ -9,6 +9,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@designer/assets": "*",
     "@designer/core": "*",
     "@designer/pm-engine": "*",
     "@heroui/react": "^2.7.0",

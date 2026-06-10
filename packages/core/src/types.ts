@@ -10,6 +10,7 @@ export const ROOM_MODEL = 'RoomModel';
 export const SCENE_MODEL = 'SceneModel';
 export const FURNITURE_MODEL = 'FurnitureModel';
 export const PARAMETRIC_MODEL = 'ParametricModel';
+export const PARAMETRIC_MODEL_V2 = 'ParametricModelV2';
 
 /** Furniture model type */
 export enum FurnitureType {

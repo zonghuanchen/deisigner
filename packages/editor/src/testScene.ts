@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material } from '@designer/core';
+import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material,ParametricModelV2 } from '@designer/core';
 import { ParametricDef } from '@designer/core/util';
 import { RoomBuilder } from '@designer/core/util';
 import { FurnitureType } from '@designer/core/types';
@@ -170,5 +170,8 @@ export function setupTestScene(scene: SceneModel): void {
         
     });
 
-
+    const closetJSON = require('@designer/assets/closet.json');
+    const closet = new ParametricModelV2(closetJSON);
+    closet.position = new THREE.Vector3(-0.1, -0.2, 0);
+    floor.addParametricV2(closet);
 }
