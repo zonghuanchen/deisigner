@@ -3,7 +3,7 @@
   "constraint": [],
   "models": [
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": -0.018132012818201593,
@@ -22,7 +22,7 @@
       }
     },
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": 0.5724683659804916,
@@ -41,7 +41,7 @@
       }
     },
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": -0.6086343634907767,
@@ -60,7 +60,7 @@
       }
     },
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": -0.01616331617100536,
@@ -79,7 +79,7 @@
       }
     },
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": -0.019617210897081794,
@@ -98,7 +98,7 @@
       }
     },
     {
-      "glb": "http://localhost:3008/9b40bbd147e68d394f83.glb",
+      "glb": "@designer/assets/WoodenPlank.glb",
       "label": "单块木板",
       "position": {
         "x": -0.022423848792334722,
