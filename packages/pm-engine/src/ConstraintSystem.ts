@@ -101,6 +101,23 @@ export class ConstraintSystem {
     }
 
     /**
+     * 求值条件表达式，返回布尔结果
+     *
+     * 支持比较运算符（> < >= <= == !=）和逻辑运算符（&& || !）。
+     * 空字符串或空白字符串视为 true（无条件限制）。
+     */
+    evaluateCondition(expr: string, extraVars?: VariableMap): boolean {
+        const trimmed = expr.trim();
+        if (!trimmed) return true;
+        try {
+            const vars = { ...this._variables, ...extraVars };
+            return ConstraintSystem.safeEvalBool(trimmed, vars);
+        } catch {
+            return true; // 条件解析失败时默认激活
+        }
+    }
+
+    /**
      * 安全表达式求值引擎
      * 将变量和数学函数作为参数传入 Function，避免全局作用域污染
      */
@@ -128,6 +145,38 @@ export class ConstraintSystem {
 
         const fn = new Function(...allNames, `"use strict"; return (${normalizedExpr});`);
         return fn(...allValues) as number;
+    }
+
+    /**
+     * 安全布尔表达式求值引擎
+     *
+     * 支持比较运算符（> < >= <= == !=）和逻辑运算符（&& || !）。
+     * 不使用 eval()，通过 new Function 限定作用域。
+     */
+    private static safeEvalBool(expr: string, vars: VariableMap): boolean {
+        const varNames = Object.keys(vars);
+        const varValues = varNames.map(k => vars[k]);
+
+        const funcNames = Object.keys(this.MATH_FUNCS);
+        const funcValues = funcNames.map(k => this.MATH_FUNCS[k]);
+        const constNames = Object.keys(this.MATH_CONSTS);
+        const constValues = constNames.map(k => this.MATH_CONSTS[k]);
+
+        const allNames = [...constNames, ...funcNames, ...varNames];
+        const allValues = [...constValues, ...funcValues, ...varValues];
+
+        // 校验：允许比较运算符和逻辑运算符
+        if (!/^[a-zA-Z0-9\s+\-*/().,%^><=!&|?:]+$/.test(expr)) {
+            throw new Error(`条件表达式含非法字符: ${expr}`);
+        }
+
+        const normalizedExpr = expr
+            .replace(/\^/g, '**')
+            .replace(/==/g, '===')
+            .replace(/!=[^=]/g, '!==');
+
+        const fn = new Function(...allNames, `"use strict"; return !!(${normalizedExpr});`);
+        return !!fn(...allValues);
     }
 
     // ─── Def resolution ─────────────────────────────────────────────────────

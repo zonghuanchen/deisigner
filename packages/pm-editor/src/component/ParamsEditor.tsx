@@ -4,7 +4,7 @@ import type { ParametricDef, BooleanOp, BindingMap, VariableMap } from '@designe
 import { SIZE_AXIS_LABELS, BOOL_TYPE_LABELS, SHAPE_PRESETS, SHAPE_TYPES } from './constants';
 import { formatValue } from './utils';
 import { SliderRow } from './SliderRow';
-import { BindButton, BindingInput } from './BindingInput';
+import { BindButton } from './BindingInput';
 
 export function ParamsEditor({
     def,
@@ -44,9 +44,9 @@ export function ParamsEditor({
     }, [bindings, onBindingsChange]);
 
     // 求值表达式用于预览
-    const evalExpr = useCallback((expr: string): string => {
+    const evalExpr = useCallback((expr: string): number => {
         const result = cs.evaluate(expr);
-        return result.error ? `❗ ${result.error}` : `= ${result.value.toFixed(3)}`;
+        return result.error ? 0 : result.value;
     }, [cs]);
 
     const handleNumericParam = useCallback(
@@ -85,28 +85,30 @@ export function ParamsEditor({
                             {(value as number[]).map((v, i) => {
                                 const path = `size.${i}`;
                                 const isBound = path in bindings;
+                                const boundVal = isBound ? evalExpr(bindings[path]) : v;
                                 return (
                                     <div key={i} className="flex items-center gap-1">
-                                        {isBound ? (
-                                            <BindingInput
-                                                path={path}
-                                                expr={bindings[path]}
-                                                preview={evalExpr(bindings[path])}
-                                                onChange={e => updateBinding(path, e)}
-                                                onUnbind={() => toggleBinding(path)}
+                                        <div className="flex-1 min-w-0">
+                                            <SliderRow
                                                 label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                                value={boundVal} min={0.05} max={10} step={0.05}
+                                                onChange={val => {
+                                                    if (isBound) {
+                                                        updateBinding(path, String(val));
+                                                    } else {
+                                                        handleSizeAxis(i, val);
+                                                    }
+                                                }}
                                             />
+                                        </div>
+                                        {isBound ? (
+                                            <button
+                                                className="shrink-0 w-5 h-5 flex items-center justify-center text-[10px] text-orange-400 hover:text-gray-300 hover:bg-gray-700/40 rounded transition-colors"
+                                                onClick={() => toggleBinding(path)}
+                                                title="解除绑定"
+                                            >✕</button>
                                         ) : (
-                                            <>
-                                                <div className="flex-1 min-w-0">
-                                                    <SliderRow
-                                                        label={SIZE_AXIS_LABELS[i] ?? `${i}`}
-                                                        value={v} min={0.05} max={10} step={0.05}
-                                                        onChange={val => handleSizeAxis(i, val)}
-                                                    />
-                                                </div>
-                                                <BindButton onClick={() => toggleBinding(path)} />
-                                            </>
+                                            <BindButton onClick={() => toggleBinding(path)} />
                                         )}
                                     </div>
                                 );
@@ -122,32 +124,32 @@ export function ParamsEditor({
                             {(value as number[]).map((v, i) => {
                                 const path = `center.${i}`;
                                 const isBound = path in bindings;
+                                const boundVal = isBound ? evalExpr(bindings[path]) : v;
                                 return (
                                     <div key={i} className="flex items-center gap-1">
-                                        {isBound ? (
-                                            <BindingInput
-                                                path={path}
-                                                expr={bindings[path]}
-                                                preview={evalExpr(bindings[path])}
-                                                onChange={e => updateBinding(path, e)}
-                                                onUnbind={() => toggleBinding(path)}
+                                        <div className="flex-1 min-w-0">
+                                            <SliderRow
                                                 label={SIZE_AXIS_LABELS[i] ?? `${i}`}
+                                                value={boundVal} min={-10} max={10} step={0.1}
+                                                onChange={val => {
+                                                    if (isBound) {
+                                                        updateBinding(path, String(val));
+                                                    } else {
+                                                        const c = [...(def.params.center as number[])];
+                                                        c[i] = val;
+                                                        handleNumericParam('center', c as any);
+                                                    }
+                                                }}
                                             />
+                                        </div>
+                                        {isBound ? (
+                                            <button
+                                                className="shrink-0 w-5 h-5 flex items-center justify-center text-[10px] text-orange-400 hover:text-gray-300 hover:bg-gray-700/40 rounded transition-colors"
+                                                onClick={() => toggleBinding(path)}
+                                                title="解除绑定"
+                                            >✕</button>
                                         ) : (
-                                            <>
-                                                <div className="flex-1 min-w-0">
-                                                    <SliderRow
-                                                        label={SIZE_AXIS_LABELS[i] ?? `${i}`}
-                                                        value={v} min={-10} max={10} step={0.1}
-                                                        onChange={val => {
-                                                            const c = [...(def.params.center as number[])];
-                                                            c[i] = val;
-                                                            handleNumericParam('center', c as any);
-                                                        }}
-                                                    />
-                                                </div>
-                                                <BindButton onClick={() => toggleBinding(path)} />
-                                            </>
+                                            <BindButton onClick={() => toggleBinding(path)} />
                                         )}
                                     </div>
                                 );
@@ -159,33 +161,35 @@ export function ParamsEditor({
                 if (typeof value === 'number') {
                     const isRadius = key === 'radius';
                     const isBound = key in bindings;
+                    const boundVal = isBound ? evalExpr(bindings[key]) : value;
                     return (
                         <div key={key} className="flex flex-col gap-0.5">
                             <span className="text-[11px] text-gray-500 font-mono">{key}</span>
                             <div className="flex items-center gap-1">
-                                {isBound ? (
-                                    <BindingInput
-                                        path={key}
-                                        expr={bindings[key]}
-                                        preview={evalExpr(bindings[key])}
-                                        onChange={e => updateBinding(key, e)}
-                                        onUnbind={() => toggleBinding(key)}
+                                <div className="flex-1 min-w-0">
+                                    <SliderRow
                                         label=""
+                                        value={boundVal}
+                                        min={isRadius ? 0.05 : 0.05}
+                                        max={isRadius ? 5 : 10}
+                                        step={0.05}
+                                        onChange={v => {
+                                            if (isBound) {
+                                                updateBinding(key, String(v));
+                                            } else {
+                                                handleNumericParam(key, v);
+                                            }
+                                        }}
                                     />
+                                </div>
+                                {isBound ? (
+                                    <button
+                                        className="shrink-0 w-5 h-5 flex items-center justify-center text-[10px] text-orange-400 hover:text-gray-300 hover:bg-gray-700/40 rounded transition-colors"
+                                        onClick={() => toggleBinding(key)}
+                                        title="解除绑定"
+                                    >✕</button>
                                 ) : (
-                                    <>
-                                        <div className="flex-1 min-w-0">
-                                            <SliderRow
-                                                label=""
-                                                value={value}
-                                                min={isRadius ? 0.05 : 0.05}
-                                                max={isRadius ? 5 : 10}
-                                                step={0.05}
-                                                onChange={v => handleNumericParam(key, v)}
-                                            />
-                                        </div>
-                                        <BindButton onClick={() => toggleBinding(key)} />
-                                    </>
+                                    <BindButton onClick={() => toggleBinding(key)} />
                                 )}
                             </div>
                         </div>

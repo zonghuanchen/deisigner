@@ -23,6 +23,8 @@ import type {
 export interface ConstraintEntryJson {
     name: string;
     value: number;
+    /** Optional condition expression: binding only applies when truthy */
+    condition?: string;
     /** Optional binding expressions: paramPath → expression string */
     bindings?: Record<string, string>;
     /** Optional index of the ParametricDef these bindings apply to */
@@ -279,8 +281,12 @@ export class ParametricModelV2 extends BaseModel {
         }
 
         // Build a defIndex → bindings lookup from constraints
+        // Skip constraint entries whose condition evaluates to false
         const bindingsByDef = new Map<number, BindingMap>();
         for (const c of constraints) {
+            if (c.condition && !this._constraintSystem.evaluateCondition(c.condition)) {
+                continue;
+            }
             if (c.bindings && c.defIndex !== undefined) {
                 const existing = bindingsByDef.get(c.defIndex) ?? {};
                 Object.assign(existing, c.bindings);

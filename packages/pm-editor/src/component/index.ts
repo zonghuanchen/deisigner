@@ -13,7 +13,7 @@ export {
 } from './constants';
 
 // Utils
-export { loadTexture, formatValue, buildGroup, getBindingsForDef, getGlbCurrentMaterial } from './utils';
+export { loadTexture, formatValue, buildGroup, getBindingsForDef, getBindingsForModel, getGlbCurrentMaterial } from './utils';
 
 // Components
 export { SliderRow } from './SliderRow';

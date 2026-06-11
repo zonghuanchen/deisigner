@@ -66,6 +66,22 @@ export function getBindingsForDef(defIndex: number, constraints: ConstraintEntry
     return bindings;
 }
 
+/**
+ * 根据约束定义，为某个 GLB 模型生成 BindingMap
+ * 从所有约束中筛选 model 索引匹配的绑定，汇总为 path → expr 的映射
+ */
+export function getBindingsForModel(modelIndex: number, constraints: ConstraintEntry[]): BindingMap {
+    const bindings: BindingMap = {};
+    for (const c of constraints) {
+        for (const b of c.bindings) {
+            if (b.model === modelIndex) {
+                bindings[b.path] = b.expr;
+            }
+        }
+    }
+    return bindings;
+}
+
 /** resolved URL → raw path 反向映射，延迟构建 */
 let resolvedToRawMap: Map<string, string> | null = null;
 function getResolvedToRaw(): Map<string, string> {

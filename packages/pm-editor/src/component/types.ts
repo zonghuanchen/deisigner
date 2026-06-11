@@ -16,9 +16,11 @@ export interface ConstraintEntry {
     name: string;           // 变量名（如 "width"）
     description: string;    // 变量描述
     value: number;          // 当前数值
+    condition?: string;     // 条件表达式（如 "width > 10"），满足时绑定才生效
     bindings: Array<{       // 该变量驱动的参数绑定
-        def: number;        // 实体索引（对应 params 数组下标）
-        path: string;       // 参数路径（如 "size.0"）
+        def?: number;       // 实体索引（对应 params 数组下标，与 model 互斥）
+        model?: number;     // GLB 模型索引（对应 models 数组下标，与 def 互斥）
+        path: string;       // 参数路径（如 "size.0" 或 "position.x"）
         expr: string;       // 表达式（如 "width * 2"）
     }>;
 }

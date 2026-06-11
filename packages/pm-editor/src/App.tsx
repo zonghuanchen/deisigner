@@ -33,6 +33,7 @@ import {
     DefDataPanel,
     VariablesPanel,
     GlbTransformEditor,
+    getBindingsForModel,
 } from './component';
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
@@ -46,6 +47,36 @@ const INITIAL_GLB_MODELS: GlbModelItem[] = DEMO_DATA.models ?? [];
 const GLB_MODEL_REGISTRY: Record<string, string> = Object.fromEntries(
     GLB_OPTIONS.map(o => [o.label, o.glb]),
 );
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Compute entity dimensions in local space (Z-up):
+ * width (X), depth (Y), height (Z).
+ * Temporarily resets world matrices so the rootGroup rotation doesn't affect the result.
+ */
+function getGroupDimensions(group: THREE.Group): { width: number; depth: number; height: number } {
+    const saved = new Map<THREE.Object3D, THREE.Matrix4>();
+    const collect = (obj: THREE.Object3D) => {
+        saved.set(obj, obj.matrixWorld.clone());
+        obj.matrixWorld.identity();
+        obj.children.forEach(collect);
+    };
+    collect(group);
+
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+
+    saved.forEach((mat, obj) => { obj.matrixWorld.copy(mat); });
+
+    return {
+        width: Math.abs(size.x),
+        depth: Math.abs(size.y),
+        height: Math.abs(size.z),
+    };
+}
+
+const fmtDim = (v: number) => (Math.round(v * 100) / 100).toString();
 
 // ─── Scene singleton ──────────────────────────────────────────────────────────
 
@@ -61,6 +92,7 @@ export function App() {
     const [defs, setDefs] = useState<ParametricDef[]>(INITIAL_DEFS);
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
     const [bottomTab, setBottomTab] = useState<'shapes' | 'models'>('shapes');
+    const [leftTab, setLeftTab] = useState<'entities' | 'variables'>('entities');
     // 约束数据（从 demo.json 的 constraint 字段初始化）
     const [constraints, setConstraints] = useState<ConstraintEntry[]>(INITIAL_CONSTRAINTS);
     // 变量从 constraints 中直接提取
@@ -108,6 +140,31 @@ export function App() {
                 dg.group.add(new THREE.Mesh(bufGeo, dg.threeMat));
             }
             applyDefTransform(dg.group, resolvedDef);
+        });
+        // 同步 GLB 模型的绑定变换
+        glbModels.forEach((model, i) => {
+            const bindings = getBindingsForModel(i, constraints);
+            if (Object.keys(bindings).length === 0) return;
+            const group = glbGroupsRef.current[i];
+            if (!group) return;
+            // 解析每个绑定表达式并应用到模型变换
+            const resolved: Record<string, number> = {};
+            for (const [path, expr] of Object.entries(bindings)) {
+                const result = cs.evaluate(expr);
+                if (!result.error) resolved[path] = result.value;
+            }
+            const applyVec = (key: 'position' | 'rotation' | 'scale') => {
+                const vec = group[key];
+                let changed = false;
+                for (const axis of ['x', 'y', 'z'] as const) {
+                    const v = resolved[`${key}.${axis}`];
+                    if (v !== undefined && isFinite(v)) { vec[axis] = v; changed = true; }
+                }
+                return changed;
+            };
+            applyVec('position');
+            applyVec('rotation');
+            applyVec('scale');
         });
     }, [variables, cs, constraints]);
 
@@ -241,6 +298,33 @@ export function App() {
                     updated.push(targetConstraint);
                 }
                 targetConstraint.bindings.push({ def: defIndex, path, expr });
+            }
+
+            return updated;
+        });
+    }, [variables]);
+
+    // 更新某个 GLB 模型的绑定（同步到 constraints 状态）
+    const handleModelBindingsChange = useCallback((modelIndex: number, newBindings: BindingMap) => {
+        setConstraints(prev => {
+            // 先清除该 modelIndex 的所有旧绑定，再写入新绑定
+            const updated = prev.map(c => ({
+                ...c,
+                bindings: c.bindings.filter(b => b.model !== modelIndex),
+            }));
+
+            // 将新绑定按表达式分组合并到约束条目中
+            for (const [path, expr] of Object.entries(newBindings) as [string, string][]) {
+                const varNames = Object.keys(variables);
+                let targetConstraint = updated.find(c =>
+                    varNames.includes(c.name) && expr.includes(c.name)
+                );
+                if (!targetConstraint) {
+                    const newName = `var_m${modelIndex}_${path.replace(/\./g, '_')}`;
+                    targetConstraint = { name: newName, description: '', value: 1, bindings: [] };
+                    updated.push(targetConstraint);
+                }
+                targetConstraint.bindings.push({ model: modelIndex, path, expr });
             }
 
             return updated;
@@ -610,15 +694,40 @@ export function App() {
                 className="pointer-events-auto absolute top-20 left-4 w-80 bg-gray-900/95 rounded-lg border border-gray-700 overflow-hidden flex flex-col"
                 style={{ maxHeight: 'calc(100vh - 220px)' }}
             >
+                {/* Left panel tabs */}
+                <div className="flex items-center gap-0 shrink-0 border-b border-gray-700/60">
+                    <button
+                        className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                            leftTab === 'entities'
+                                ? 'text-white border-b-2 border-blue-500 bg-blue-600/10'
+                                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40'
+                        }`}
+                        onClick={() => setLeftTab('entities')}
+                    >
+                        实体列表
+                    </button>
+                    <button
+                        className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                            leftTab === 'variables'
+                                ? 'text-white border-b-2 border-blue-500 bg-blue-600/10'
+                                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40'
+                        }`}
+                        onClick={() => setLeftTab('variables')}
+                    >
+                        约束变量
+                    </button>
+                </div>
+
+                {/* Tab: 实体列表 */}
+                {leftTab === 'entities' && (<>
                 {/* Scrollable list area: entity list + GLB model list */}
                 <div className="overflow-y-auto shrink-0" style={{ maxHeight: '30vh' }}>
                 {/* Selection list */}
                 <div className="px-4 py-3 border-b border-gray-700/60">
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">实体列表</span>
                     <div className="flex flex-col gap-1 mt-2">
                         {defs.map((def, i) => (
                             <div
-                                key={i}
+                                key={`def-${i}`}
                                 role="button"
                                 tabIndex={0}
                                 onClick={() => {
@@ -639,7 +748,6 @@ export function App() {
                                         : 'bg-gray-800/60 border border-transparent hover:bg-gray-700/60'
                                 }`}
                             >
-                                {/* Appearance preview */}
                                 <span
                                     className="w-5 h-5 rounded-sm shrink-0 overflow-hidden mt-0.5"
                                     style={def.material?.map
@@ -649,35 +757,46 @@ export function App() {
                                 />
                                 <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs font-mono text-gray-200">{def.type}</span>
+                                        <span className="text-xs text-gray-200 truncate">{def.type}</span>
                                         <div className="flex items-center gap-1 ml-auto shrink-0">
-                                            <span className="text-[11px] text-gray-500">#{i}</span>
+                                            <span className="text-[11px] text-gray-500 font-mono">#{i}</span>
                                             <button
                                                 className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors px-0.5"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteDef(i);
-                                                }}
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteDef(i); }}
                                                 title="删除实体"
                                             >✕</button>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono">
+                                    <div className="text-[10px] text-gray-500 font-mono truncate">
                                         {def.material?.map
-                                            ? <span className="text-amber-400/80">
-                                                {TEXTURE_OPTIONS.find(t => t.url === def.material?.map)?.label ?? '贴图'}
-                                              </span>
-                                            : <span>{def.material?.color ?? '#cccccc'}</span>
+                                            ? <span className="text-amber-400/80">{TEXTURE_OPTIONS.find(t => t.url === def.material?.map)?.label ?? '贴图'}</span>
+                                            : <span>默认</span>
                                         }
+                                        <span className="mx-1">·</span>
                                         <span>粗糙 {def.material?.roughness.toFixed(2) ?? '-'}</span>
+                                        <span className="mx-1">·</span>
                                         <span>金属 {def.material?.metalness.toFixed(2) ?? '-'}</span>
                                     </div>
+                                    {(() => {
+                                        const dg = defGroupsRef.current[i];
+                                        if (!dg) return null;
+                                        const dim = getGroupDimensions(dg.group);
+                                        return (
+                                            <div className="text-[10px] text-gray-500 font-mono truncate">
+                                                <span className="text-cyan-400/70">{fmtDim(dim.width)}</span>
+                                                <span className="mx-0.5">×</span>
+                                                <span className="text-cyan-400/70">{fmtDim(dim.depth)}</span>
+                                                <span className="mx-0.5">×</span>
+                                                <span className="text-cyan-400/70">{fmtDim(dim.height)}</span>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
-                
+
                 {/* GLB 模型列表 */}
                 {glbModels.length > 0 && (
                     <div className="px-4 py-3 border-b border-gray-700/60">
@@ -685,7 +804,7 @@ export function App() {
                         <div className="flex flex-col gap-1 mt-2">
                             {glbModels.map((model, i) => (
                                 <div
-                                    key={i}
+                                    key={`glb-${i}`}
                                     role="button"
                                     tabIndex={0}
                                     onClick={() => {
@@ -717,9 +836,9 @@ export function App() {
                                     />
                                     <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xs font-mono text-gray-200">{model.label}</span>
+                                            <span className="text-xs text-gray-200 truncate">{model.label}</span>
                                             <div className="flex items-center gap-1 ml-auto shrink-0">
-                                                <span className="text-[11px] text-gray-500">M{i}</span>
+                                                <span className="text-[11px] text-gray-500 font-mono">M{i}</span>
                                                 <button
                                                     className="text-[11px] text-red-400/50 hover:text-red-300 transition-colors px-0.5"
                                                     onClick={(e) => { e.stopPropagation(); handleDeleteGlbModel(i); }}
@@ -727,55 +846,56 @@ export function App() {
                                                 >✕</button>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono">
+                                        <div className="text-[10px] text-gray-500 font-mono truncate">
                                             {(() => {
                                                 const mat = model.material;
                                                 if (mat?.map) return <span className="text-amber-400/80">{TEXTURE_OPTIONS.find(t => t.url === mat.map)?.label ?? '贴图'}</span>;
-                                                return <span>{mat?.color ?? '默认'}</span>;
+                                                return <span>默认</span>;
                                             })()}
+                                            <span className="mx-1">·</span>
                                             <span>粗糙 {model.material?.roughness.toFixed(2) ?? '-'}</span>
+                                            <span className="mx-1">·</span>
                                             <span>金属 {model.material?.metalness.toFixed(2) ?? '-'}</span>
                                         </div>
+                                        {(() => {
+                                            const g = glbGroupsRef.current[i];
+                                            if (!g) return null;
+                                            const dim = getGroupDimensions(g);
+                                            return (
+                                                <div className="text-[10px] text-gray-500 font-mono truncate">
+                                                    <span className="text-cyan-400/70">{fmtDim(dim.width)}</span>
+                                                    <span className="mx-0.5">×</span>
+                                                    <span className="text-cyan-400/70">{fmtDim(dim.depth)}</span>
+                                                    <span className="mx-0.5">×</span>
+                                                    <span className="text-cyan-400/70">{fmtDim(dim.height)}</span>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
-                
                 </div>
                 {/* end scrollable list area */}
-
-                {/* 约束变量管理 */}
-                <div className="shrink-0 overflow-y-auto" style={{ maxHeight: '20vh' }}>
-                <VariablesPanel
-                    constraints={constraints}
-                    variables={variables}
-                    onVariableChange={setVariables}
-                    onConstraintRemove={name => {
-                        // 从 constraints 中删除该变量条目，并从 variables 中移除
-                        setConstraints(prev => prev.filter(c => c.name !== name));
-                        setVariables((prev: VariableMap) => {
-                            const next = { ...prev };
-                            delete next[name];
-                            return next;
-                        });
-                    }}
-                    onResetAll={() => {
-                        setVariables((prev: VariableMap) => {
-                            const next = { ...prev };
-                            for (const c of constraints) {
-                                next[c.name] = c.value;
-                            }
-                            return next;
-                        });
-                    }}
-                />
-                </div>
 
                 {/* Selected entity details */}
                 {selectedDef && selectedDg ? (
                     <div className="flex-1 min-h-0 overflow-y-auto">
+                        {/* Dimensions (W × D × H) */}
+                        {(() => {
+                            const dim = getGroupDimensions(selectedDg.group);
+                            return (
+                                <div className="px-4 py-2 border-b border-gray-700/60 flex items-center gap-2">
+                                    <span className="text-[11px] text-gray-500 font-mono">尺寸</span>
+                                    <span className="text-xs text-cyan-300 font-mono">
+                                        {fmtDim(dim.width)} × {fmtDim(dim.depth)} × {fmtDim(dim.height)}
+                                    </span>
+                                    <span className="text-[10px] text-gray-600 ml-auto">宽×深×高</span>
+                                </div>
+                            );
+                        })()}
                         {/* Transform (position / rotation / scale) */}
                         <div className="px-4 py-3 border-b border-gray-700/60">
                             <TransformEditor
@@ -814,6 +934,10 @@ export function App() {
                             <GlbTransformEditor
                                 model={glbModels[selectedGlbIndex]}
                                 onChange={update => handleGlbTransformChange(selectedGlbIndex!, update)}
+                                variables={variables}
+                                cs={cs}
+                                bindings={getBindingsForModel(selectedGlbIndex!, constraints)}
+                                onBindingsChange={newBindings => handleModelBindingsChange(selectedGlbIndex!, newBindings)}
                             />
                         </div>
                         {/* GLB 模型材质编辑 */}
@@ -839,6 +963,20 @@ export function App() {
                                     <span className="text-[11px] text-gray-500 font-mono w-12">文件</span>
                                     <span className="text-[10px] text-gray-400 font-mono truncate">{glbModels[selectedGlbIndex].glb}</span>
                                 </div>
+                                {(() => {
+                                    const g = glbGroupsRef.current[selectedGlbIndex!];
+                                    if (!g) return null;
+                                    const dim = getGroupDimensions(g);
+                                    return (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] text-gray-500 font-mono w-12">尺寸</span>
+                                            <span className="text-xs text-cyan-300 font-mono">
+                                                {fmtDim(dim.width)} × {fmtDim(dim.depth)} × {fmtDim(dim.height)}
+                                            </span>
+                                            <span className="text-[10px] text-gray-600">宽×深×高</span>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>
@@ -847,6 +985,58 @@ export function App() {
                         <p className="text-sm text-gray-500">未选中任何实体</p>
                         <p className="text-xs text-gray-600 mt-1">在 3D 场景中点击以选中</p>
                     </div>
+                )}
+                </>)}
+
+                {/* Tab: 约束变量 */}
+                {leftTab === 'variables' && (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    <VariablesPanel
+                        constraints={constraints}
+                        variables={variables}
+                        defs={defs}
+                        glbModels={glbModels}
+                        onVariableChange={setVariables}
+                        onConstraintAdd={entry => setConstraints(prev => [...prev, entry])}
+                        onConstraintRemove={name => {
+                            setConstraints(prev => prev.filter(c => c.name !== name));
+                            setVariables((prev: VariableMap) => {
+                                const next = { ...prev };
+                                delete next[name];
+                                return next;
+                            });
+                        }}
+                        onConstraintUpdate={(name, patch) => {
+                            setConstraints(prev => prev.map(c =>
+                                c.name === name ? { ...c, ...patch } : c
+                            ));
+                        }}
+                        onBindingAdd={(constraintName, binding) => {
+                            setConstraints(prev => prev.map(c =>
+                                c.name === constraintName
+                                    ? { ...c, bindings: [...c.bindings, binding] }
+                                    : c
+                            ));
+                        }}
+                        onBindingRemove={(constraintName, bindingIndex) => {
+                            setConstraints(prev => prev.map(c => {
+                                if (c.name !== constraintName) return c;
+                                const next = [...c.bindings];
+                                next.splice(bindingIndex, 1);
+                                return { ...c, bindings: next };
+                            }));
+                        }}
+                        onResetAll={() => {
+                            setVariables((prev: VariableMap) => {
+                                const next = { ...prev };
+                                for (const c of constraints) {
+                                    next[c.name] = c.value;
+                                }
+                                return next;
+                            });
+                        }}
+                    />
+                </div>
                 )}
             </div>
         </div>
