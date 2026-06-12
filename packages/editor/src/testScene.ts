@@ -172,6 +172,7 @@ export function setupTestScene(scene: SceneModel): void {
 
     const closetJSON = require('@designer/assets/closet.json');
     const closet = new ParametricModelV2(closetJSON);
-    closet.position = new THREE.Vector3(-0.1, -0.2, 0);
+    closet.position = new THREE.Vector3(-0.1, 0.6, 0);
+    closet.rotation = new THREE.Euler(0, 0, Math.PI);
     floor.addParametricV2(closet);
 }

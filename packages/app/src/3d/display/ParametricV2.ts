@@ -202,29 +202,50 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         }
 
         // ── Per-item local RTS → GLB model groups ────────────────────────────
+        // Use resolved transforms from graphData (constraint-evaluated),
+        // fall back to raw JSON definitions if graphData not yet available.
+        const resolvedModels = graphData?.models;
         const models = this.model.json?.models;
-        if (models && this.glbGroups.length > 0) {
-            for (let i = 0; i < this.glbGroups.length && i < models.length; i++) {
-                const glbScene = this.glbGroups[i];
-                const modelDef = models[i];
 
-                if (modelDef.position) {
+        if (this.glbGroups.length > 0) {
+            for (let i = 0; i < this.glbGroups.length; i++) {
+                const glbScene = this.glbGroups[i];
+                const resolved = resolvedModels?.[i];
+                const modelDef = models?.[i];
+
+                if (resolved) {
+                    // Use constraint-resolved transforms
                     glbScene.position.copy(
-                        toThreeJS(new THREE.Vector3(modelDef.position.x, modelDef.position.y, modelDef.position.z)),
+                        toThreeJS(new THREE.Vector3(resolved.position.x, resolved.position.y, resolved.position.z)),
                     );
+                    glbScene.rotation.copy(
+                        toThreeJS(new THREE.Euler(resolved.rotation.x, resolved.rotation.y, resolved.rotation.z)),
+                    );
+                    glbScene.scale.set(resolved.scale.x, resolved.scale.z, resolved.scale.y);
+                } else if (modelDef) {
+                    // Fall back to raw JSON
+                    if (modelDef.position) {
+                        glbScene.position.copy(
+                            toThreeJS(new THREE.Vector3(modelDef.position.x, modelDef.position.y, modelDef.position.z)),
+                        );
+                    } else {
+                        glbScene.position.set(0, 0, 0);
+                    }
+                    if (modelDef.rotation) {
+                        glbScene.rotation.copy(
+                            toThreeJS(new THREE.Euler(modelDef.rotation.x, modelDef.rotation.y, modelDef.rotation.z)),
+                        );
+                    } else {
+                        glbScene.rotation.set(0, 0, 0);
+                    }
+                    if (modelDef.scale) {
+                        glbScene.scale.set(modelDef.scale.x, modelDef.scale.z, modelDef.scale.y);
+                    } else {
+                        glbScene.scale.set(1, 1, 1);
+                    }
                 } else {
                     glbScene.position.set(0, 0, 0);
-                }
-                if (modelDef.rotation) {
-                    glbScene.rotation.copy(
-                        toThreeJS(new THREE.Euler(modelDef.rotation.x, modelDef.rotation.y, modelDef.rotation.z)),
-                    );
-                } else {
                     glbScene.rotation.set(0, 0, 0);
-                }
-                if (modelDef.scale) {
-                    glbScene.scale.set(modelDef.scale.x, modelDef.scale.z, modelDef.scale.y);
-                } else {
                     glbScene.scale.set(1, 1, 1);
                 }
             }

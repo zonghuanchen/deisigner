@@ -16,6 +16,12 @@ export interface ConstraintEntry {
     name: string;           // 变量名（如 "width"）
     description: string;    // 变量描述
     value: number;          // 当前数值
+    /** Slider minimum (optional) */
+    min?: number;
+    /** Slider maximum (optional) */
+    max?: number;
+    /** Slider step increment (optional) */
+    step?: number;
     condition?: string;     // 条件表达式（如 "width > 10"），满足时绑定才生效
     bindings: Array<{       // 该变量驱动的参数绑定
         def?: number;       // 实体索引（对应 params 数组下标，与 model 互斥）

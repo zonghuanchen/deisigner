@@ -17,18 +17,38 @@ import type {
 // ─── JSON schema produced by pm-editor ─────────────────────────────────────────
 
 /**
+ * A single binding entry within a ConstraintEntryJson.
+ * Mirrors pm-editor's `ConstraintEntry.bindings[n]` structure.
+ */
+export interface BindingEntryJson {
+    /** ParametricDef index (mutually exclusive with `model`) */
+    def?: number;
+    /** GLB model index (mutually exclusive with `def`) */
+    model?: number;
+    /** Parameter path (e.g. "size.0", "position.x") */
+    path: string;
+    /** Expression string (e.g. "width * 2") */
+    expr: string;
+}
+
+/**
  * Constraint entry as serialized by pm-editor.
- * `name` is the variable name, `value` its initial numeric value.
+ * Mirrors pm-editor's `ConstraintEntry` structure.
  */
 export interface ConstraintEntryJson {
     name: string;
+    description?: string;
     value: number;
+    /** Slider minimum (optional) */
+    min?: number;
+    /** Slider maximum (optional) */
+    max?: number;
+    /** Slider step increment (optional) */
+    step?: number;
     /** Optional condition expression: binding only applies when truthy */
     condition?: string;
-    /** Optional binding expressions: paramPath → expression string */
-    bindings?: Record<string, string>;
-    /** Optional index of the ParametricDef these bindings apply to */
-    defIndex?: number;
+    /** Binding entries driven by this variable */
+    bindings: BindingEntryJson[];
 }
 
 /**
@@ -72,6 +92,37 @@ export interface GeometryItem {
 }
 
 /**
+ * Metadata for a single constraint variable, extracted from ConstraintEntryJson.
+ * Carries UI hints (description, slider range) so downstream consumers can
+ * render appropriate controls without re-parsing the original JSON.
+ */
+export interface ConstraintVariableMeta {
+    /** Variable name (key into VariableMap) */
+    name: string;
+    /** Human-readable description */
+    description: string;
+    /** Initial / default value */
+    value: number;
+    /** Slider minimum */
+    min?: number;
+    /** Slider maximum */
+    max?: number;
+    /** Slider step increment */
+    step?: number;
+    /** Condition expression (binding active only when truthy) */
+    condition?: string;
+}
+
+/**
+ * Resolved transform for a GLB model item after constraint evaluation.
+ */
+export interface GlbModelTransform {
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number };
+    scale: { x: number; y: number; z: number };
+}
+
+/**
  * Result of building a ParametricModelV2 from a pm-editor JSON document.
  * Global RTS is stored separately; each item keeps only its local transform.
  */
@@ -79,6 +130,10 @@ export interface GraphData {
     items: GeometryItem[];
     /** Original variables resolved from constraints */
     variables: VariableMap;
+    /** Per-variable metadata (description, range, step) for UI rendering */
+    constraintVariables: ConstraintVariableMeta[];
+    /** Resolved GLB model transforms (after constraint evaluation) */
+    models: GlbModelTransform[];
     /** Global position applied to the whole group */
     position: { x: number; y: number; z: number };
     /** Global Euler rotation (radians) applied to the whole group */
@@ -127,6 +182,8 @@ export class ParametricModelV2 extends BaseModel {
     private _json: PmEditorJson | null = null;
     private _constraintSystem: ConstraintSystem = new ConstraintSystem();
     private _graphData: GraphData | null = null;
+    /** Per-variable metadata extracted from constraint entries */
+    private _constraintMeta: ConstraintVariableMeta[] = [];
 
     // Overall transform applied to the group (not composed into individual items)
     private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
@@ -172,6 +229,13 @@ export class ParametricModelV2 extends BaseModel {
      */
     get variables(): VariableMap {
         return this._constraintSystem.variables;
+    }
+
+    /**
+     * Per-variable metadata (description, range, step) for UI rendering.
+     */
+    get constraintVariables(): ConstraintVariableMeta[] {
+        return this._constraintMeta;
     }
 
     /**
@@ -242,6 +306,7 @@ export class ParametricModelV2 extends BaseModel {
             id: this._id,
             defCount: defs.length,
             variables: this.variables,
+            constraintVariables: this._constraintMeta,
             position: { x: this._position.x, y: this._position.y, z: this._position.z },
             rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
             scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },
@@ -257,20 +322,33 @@ export class ParametricModelV2 extends BaseModel {
     // ─── Internal ────────────────────────────────────────────────────────────
 
     /**
-     * Initialise ConstraintSystem variables from the constraint entries.
+     * Initialise ConstraintSystem variables and extract metadata from constraint entries.
      */
     private _initVariables(constraints?: ConstraintEntryJson[]): void {
         const vars: VariableMap = {};
+        const meta: ConstraintVariableMeta[] = [];
         if (constraints) {
             for (const c of constraints) {
                 vars[c.name] = c.value;
+                meta.push({
+                    name: c.name,
+                    description: c.description ?? '',
+                    value: c.value,
+                    min: c.min,
+                    max: c.max,
+                    step: c.step,
+                    condition: c.condition,
+                });
             }
         }
         this._constraintSystem.setVariables(vars);
+        this._constraintMeta = meta;
     }
 
     /**
      * Resolve bindings for all defs using the ConstraintSystem.
+     * Reads the array-based `bindings` from each ConstraintEntryJson
+     * (same structure as pm-editor's ConstraintEntry).
      */
     private _resolveDefs(
         defs: ParametricDef[],
@@ -280,17 +358,18 @@ export class ParametricModelV2 extends BaseModel {
             return defs;
         }
 
-        // Build a defIndex → bindings lookup from constraints
-        // Skip constraint entries whose condition evaluates to false
+        // Build a defIndex → BindingMap lookup from constraints.
+        // Skip constraint entries whose condition evaluates to false.
         const bindingsByDef = new Map<number, BindingMap>();
         for (const c of constraints) {
             if (c.condition && !this._constraintSystem.evaluateCondition(c.condition)) {
                 continue;
             }
-            if (c.bindings && c.defIndex !== undefined) {
-                const existing = bindingsByDef.get(c.defIndex) ?? {};
-                Object.assign(existing, c.bindings);
-                bindingsByDef.set(c.defIndex, existing);
+            for (const b of c.bindings) {
+                if (b.def === undefined) continue;
+                const existing = bindingsByDef.get(b.def) ?? {};
+                existing[b.path] = b.expr;
+                bindingsByDef.set(b.def, existing);
             }
         }
 
@@ -302,39 +381,100 @@ export class ParametricModelV2 extends BaseModel {
     }
 
     /**
+     * Extract GLB model bindings from constraints for a given model index.
+     */
+    private _getBindingsForModel(
+        modelIndex: number,
+        constraints?: ConstraintEntryJson[],
+    ): BindingMap {
+        const bindings: BindingMap = {};
+        if (!constraints) return bindings;
+        for (const c of constraints) {
+            if (c.condition && !this._constraintSystem.evaluateCondition(c.condition)) {
+                continue;
+            }
+            for (const b of c.bindings) {
+                if (b.model === modelIndex) {
+                    bindings[b.path] = b.expr;
+                }
+            }
+        }
+        return bindings;
+    }
+
+    /**
+     * Set a value on a GlbModelTransform by dot-path.
+     * Supports paths like "position.x", "rotation.z", "scale.y".
+     */
+    private _setVec3ByPath(
+        obj: GlbModelTransform,
+        path: string,
+        value: number,
+    ): void {
+        const parts = path.split('.');
+        if (parts.length !== 2) return;
+        const [vec, axis] = parts as [keyof GlbModelTransform, 'x' | 'y' | 'z'];
+        if (obj[vec] && axis in obj[vec]) {
+            (obj[vec] as any)[axis] = value;
+        }
+    }
+
+    /**
      * Rebuild the GraphData from the current JSON + resolved variables.
      * Each ParametricDef becomes one GeometryItem with its own transform.
+     * GLB model transforms are resolved from constraint bindings.
      */
     private _rebuild(): void {
-        if (!this._json?.params || this._json.params.length === 0) {
+        if (!this._json) {
             this._graphData = null;
             this.dispatchEvent({ type: 'dirty', model: this });
             return;
         }
 
-        const resolvedDefs = this._resolveDefs(
-            this._json.params,
-            this._json.constraint,
-        );
+        // ── JSCAD parametric geometry ──────────────────────────────────────
+        const params = this._json.params ?? [];
+        let items: GeometryItem[] = [];
 
-        // Build geometries with UVs (one per def)
-        const geometryData: GeometryData[] = ParametricModeler.buildGeometries(resolvedDefs);
+        if (params.length > 0) {
+            const resolvedDefs = this._resolveDefs(params, this._json.constraint);
+            const geometryData: GeometryData[] = ParametricModeler.buildGeometries(resolvedDefs);
 
-        const items: GeometryItem[] = geometryData.map((gd, i) => {
-            const def = resolvedDefs[i];
-            return {
-                geometry: gd.geometry,
-                uvs: gd.uvs,
-                material: def.material ?? null,
-                position: { ...(def.position ?? DEFAULT_VEC3) },
-                rotation: { ...(def.rotation ?? DEFAULT_VEC3) },
-                scale: { ...(def.scale ?? DEFAULT_SCALE) },
+            items = geometryData.map((gd, i) => {
+                const def = resolvedDefs[i];
+                return {
+                    geometry: gd.geometry,
+                    uvs: gd.uvs,
+                    material: def.material ?? null,
+                    position: { ...(def.position ?? DEFAULT_VEC3) },
+                    rotation: { ...(def.rotation ?? DEFAULT_VEC3) },
+                    scale: { ...(def.scale ?? DEFAULT_SCALE) },
+                };
+            });
+        }
+
+        // ── GLB model transforms (resolved from constraints) ───────────────
+        const models = this._json.models ?? [];
+        const resolvedModels: GlbModelTransform[] = models.map((m, i) => {
+            const bindings = this._getBindingsForModel(i, this._json!.constraint);
+            const base = {
+                position: { ...(m.position ?? DEFAULT_VEC3) },
+                rotation: { ...(m.rotation ?? DEFAULT_VEC3) },
+                scale: { ...(m.scale ?? DEFAULT_SCALE) },
             };
+            // Evaluate binding expressions and override base values
+            for (const [path, expr] of Object.entries(bindings)) {
+                const result = this._constraintSystem.evaluate(expr);
+                if (result.error) continue;
+                this._setVec3ByPath(base, path, result.value);
+            }
+            return base;
         });
 
         this._graphData = {
             items,
             variables: this._constraintSystem.variables,
+            constraintVariables: this._constraintMeta,
+            models: resolvedModels,
             position: { x: this._position.x, y: this._position.y, z: this._position.z },
             rotation: { x: this._rotation.x, y: this._rotation.y, z: this._rotation.z },
             scale: { x: this._scale.x, y: this._scale.y, z: this._scale.z },

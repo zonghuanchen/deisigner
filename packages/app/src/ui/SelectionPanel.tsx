@@ -9,6 +9,7 @@ import { GroundModel } from '@designer/core/model/GroundModel';
 import { CeilingModel } from '@designer/core/model/CeilingModel';
 import { Material } from '@designer/core/material/Material';
 import type { ParametricDef, BooleanOp } from '@designer/pm-engine';
+import type { ConstraintVariableMeta } from '@designer/core/model/ParametricModelV2';
 
 const TYPE_LABELS: Record<string, string> = {
     WallModel: '墙体',
@@ -298,6 +299,130 @@ function ParamsSection({ model }: { model: ParametricModel }) {
                     {params.map((def, i) => (
                         <ShapeBlock key={i} def={def} index={i} label={`形状 ${i + 1}`} model={model} />
                     ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Slider defaults when constraint meta doesn't specify range */
+const VAR_DEFAULT_MIN = 0;
+const VAR_DEFAULT_MAX = 100;
+const VAR_DEFAULT_STEP = 1;
+
+function ConstraintVariablesSection({ model }: { model: ParametricModelV2 }) {
+    const [open, setOpen] = useState(true);
+    // Re-render when model rebuilds (variables may change)
+    useModelListener(model, 'change');
+
+    const meta = model.constraintVariables;
+    const vars = model.variables;
+
+    // Local text-editing state for decimal input support
+    const [editingVar, setEditingVar] = useState<{ name: string; text: string } | null>(null);
+
+    const handleChange = useCallback(
+        (name: string, v: number) => {
+            model.setVariables({ ...vars, [name]: v });
+        },
+        [model, vars],
+    );
+
+    const handleTextFocus = useCallback(
+        (name: string, currentValue: number) => {
+            setEditingVar({ name, text: String(currentValue) });
+        },
+        [],
+    );
+
+    const handleTextCommit = useCallback(
+        (name: string) => {
+            if (!editingVar || editingVar.name !== name) return;
+            const parsed = parseFloat(editingVar.text);
+            if (isFinite(parsed)) {
+                handleChange(name, parsed);
+            }
+            setEditingVar(null);
+        },
+        [editingVar, handleChange],
+    );
+
+    if (!meta || meta.length === 0) return null;
+
+    return (
+        <div className="flex flex-col gap-1 border-b border-gray-700/60 pb-3">
+            <button
+                className="flex items-center gap-1.5 text-left group"
+                onClick={() => setOpen(o => !o)}
+            >
+                <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
+                    {open ? '▾' : '▸'}
+                </span>
+                <span className="text-xs font-semibold text-cyan-400/80 uppercase tracking-wide">约束变量</span>
+                <span className="text-[11px] text-gray-500 font-mono">{meta.length}</span>
+            </button>
+            {open && (
+                <div className="flex flex-col gap-2 ml-1">
+                    {meta.map((m) => {
+                        const min = m.min ?? VAR_DEFAULT_MIN;
+                        const max = m.max ?? VAR_DEFAULT_MAX;
+                        const step = m.step ?? VAR_DEFAULT_STEP;
+                        const currentValue = vars[m.name] ?? m.value;
+                        const isEditing = editingVar?.name === m.name;
+
+                        return (
+                            <div key={m.name} className="flex flex-col gap-0.5">
+                                {/* Variable name + description */}
+                                <div className="flex items-baseline gap-1.5">
+                                    <span className="text-[11px] font-semibold text-cyan-300/80 font-mono">{m.name}</span>
+                                    {m.description && (
+                                        <span className="text-[10px] text-gray-500 truncate">{m.description}</span>
+                                    )}
+                                </div>
+                                {/* Slider + value */}
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="range"
+                                        min={min}
+                                        max={max}
+                                        step={step}
+                                        value={currentValue}
+                                        className="flex-1 h-1 accent-cyan-500 cursor-pointer"
+                                        onChange={e => handleChange(m.name, parseFloat(e.target.value))}
+                                    />
+                                    {isEditing ? (
+                                        <input
+                                            type="text"
+                                            className="w-14 text-xs text-gray-200 bg-gray-800 border border-gray-600 rounded px-1 py-0.5 font-mono text-right tabular-nums"
+                                            value={editingVar.text}
+                                            autoFocus
+                                            onChange={e => setEditingVar({ name: m.name, text: e.target.value })}
+                                            onBlur={() => handleTextCommit(m.name)}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter') handleTextCommit(m.name);
+                                                if (e.key === 'Escape') setEditingVar(null);
+                                            }}
+                                        />
+                                    ) : (
+                                        <span
+                                            className="text-xs text-gray-300 w-14 text-right font-mono tabular-nums cursor-text hover:text-white transition-colors"
+                                            onClick={() => handleTextFocus(m.name, currentValue)}
+                                            title="点击编辑精确值"
+                                        >
+                                            {Math.round(currentValue * 100) / 100}
+                                        </span>
+                                    )}
+                                </div>
+                                {/* Range hint */}
+                                {(m.min !== undefined || m.max !== undefined) && (
+                                    <div className="flex justify-between text-[9px] text-gray-600 font-mono px-0.5">
+                                        <span>{min}</span>
+                                        <span>{max}</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -738,6 +863,7 @@ export function SelectionPanel() {
     if (isParametricV2) {
         excludeKeys.add('defCount');
         excludeKeys.add('variables');
+        excludeKeys.add('constraintVariables');
         excludeKeys.add('items');
     }
     const props = Object.entries(first).filter(([k]) => !excludeKeys.has(k));
@@ -786,6 +912,13 @@ export function SelectionPanel() {
             {isParametric && firstModel instanceof ParametricModel && (
                 <div className="px-4 py-3">
                     <ParamsSection model={firstModel} />
+                </div>
+            )}
+
+            {/* Constraint variables for ParametricModelV2 */}
+            {isParametricV2 && firstModel instanceof ParametricModelV2 && (
+                <div className="px-4 py-3">
+                    <ConstraintVariablesSection model={firstModel} />
                 </div>
             )}
 

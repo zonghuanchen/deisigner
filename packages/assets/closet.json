@@ -3,7 +3,10 @@
   "constraint": [
     {
       "name": "w",
-      "value": 1,
+      "value": 0.2,
+      "min": 0.1,
+      "max": 1.5,
+      "step": 0.1,
       "description": "隔板高度",
       "bindings": [
         {
