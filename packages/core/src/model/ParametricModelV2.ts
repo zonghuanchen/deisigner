@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BaseModel } from './BaseModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { PARAMETRIC_MODEL_V2 } from '../types';
+import { Material } from '../material/Material';
 import {
     ParametricModeler,
     ConstraintSystem,
@@ -60,6 +61,7 @@ export interface GlbModelJson {
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
+    material?: MaterialData;
 }
 
 /**
@@ -159,8 +161,13 @@ export interface ParametricV2DirtyTransformEvent {
     model: ParametricModelV2;
 }
 
+export interface ParametricV2DirtyMaterialEvent {
+    type: 'dirtyMaterial';
+    model: ParametricModelV2;
+}
+
 export type ParametricV2EventListener = (
-    event: ParametricV2ChangeEvent | ParametricV2DirtyEvent | ParametricV2DirtyTransformEvent,
+    event: ParametricV2ChangeEvent | ParametricV2DirtyEvent | ParametricV2DirtyTransformEvent | ParametricV2DirtyMaterialEvent,
 ) => void;
 
 // ─── Model class ───────────────────────────────────────────────────────────────
@@ -184,6 +191,8 @@ export class ParametricModelV2 extends BaseModel {
     private _graphData: GraphData | null = null;
     /** Per-variable metadata extracted from constraint entries */
     private _constraintMeta: ConstraintVariableMeta[] = [];
+    /** Per-geometry Material instances (editable, one per geometry item) */
+    private _materials: (Material | null)[] = [];
 
     // Overall transform applied to the group (not composed into individual items)
     private _position: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
@@ -298,6 +307,39 @@ export class ParametricModelV2 extends BaseModel {
         }
     }
 
+    /**
+     * The Material array, one per geometry item. Editable from the UI.
+     */
+    get materials(): (Material | null)[] {
+        return this._materials;
+    }
+
+    /**
+     * Replace the entire materials array and rebind listeners.
+     */
+    set materials(value: (Material | null)[]) {
+        this._unbindMaterialListeners();
+        this._materials = value;
+        this._bindMaterialListeners();
+        this.dispatchEvent({ type: 'dirtyMaterial', model: this });
+    }
+
+    /**
+     * Update a single material by index. Creates or replaces the Material
+     * and triggers a dirtyMaterial event.
+     */
+    setMaterial(index: number, material: Material | null): void {
+        const old = this._materials[index];
+        if (old) {
+            old.removeEventListener('change', this._onMaterialChange);
+        }
+        this._materials[index] = material;
+        if (material) {
+            material.addEventListener('change', this._onMaterialChange);
+        }
+        this.dispatchEvent({ type: 'dirtyMaterial', model: this });
+    }
+
     // ─── Overrides ──────────────────────────────────────────────────────────
 
     getUI(): Record<string, any> {
@@ -316,7 +358,66 @@ export class ParametricModelV2 extends BaseModel {
                 scale: item.scale,
                 material: item.material,
             })) ?? [],
+            materials: this._materials.map(m => m?.getUI() ?? null),
         };
+    }
+
+    // ─── Material helpers ────────────────────────────────────────────────────
+
+    /**
+     * Create Material instances from the MaterialData found in each ParametricDef
+     * and each GLB model definition.
+     * Called during _rebuild so the materials array stays in sync with all geometry items.
+     * Items without explicit material data get a default Material so they're still editable.
+     */
+    private _buildMaterials(items: GeometryItem[], glbModels: GlbModelJson[]): void {
+        this._unbindMaterialListeners();
+        const jscadMaterials = items.map(item => {
+            if (!item.material) return null;
+            const md = item.material;
+            return new Material({
+                color: md.color,
+                roughness: md.roughness,
+                metalness: md.metalness,
+            });
+        });
+        const glbMaterials = glbModels.map(m => {
+            if (m.material) {
+                return new Material({
+                    color: m.material.color,
+                    roughness: m.material.roughness,
+                    metalness: m.material.metalness,
+                });
+            }
+            // Create a default editable material for GLB models without explicit material
+            return new Material({
+                color: '#cccccc',
+                roughness: 0.5,
+                metalness: 0.0,
+            });
+        });
+        this._materials = [...jscadMaterials, ...glbMaterials];
+        this._bindMaterialListeners();
+    }
+
+    private _onMaterialChange = (): void => {
+        this.dispatchEvent({ type: 'dirtyMaterial', model: this });
+    };
+
+    private _bindMaterialListeners(): void {
+        for (const mat of this._materials) {
+            if (mat) {
+                mat.addEventListener('change', this._onMaterialChange);
+            }
+        }
+    }
+
+    private _unbindMaterialListeners(): void {
+        for (const mat of this._materials) {
+            if (mat) {
+                mat.removeEventListener('change', this._onMaterialChange);
+            }
+        }
     }
 
     // ─── Internal ────────────────────────────────────────────────────────────
@@ -469,6 +570,8 @@ export class ParametricModelV2 extends BaseModel {
             }
             return base;
         });
+
+        this._buildMaterials(items, models);
 
         this._graphData = {
             items,

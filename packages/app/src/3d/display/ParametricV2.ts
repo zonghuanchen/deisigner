@@ -40,6 +40,7 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         // Listen for model events
         this.model.addEventListener('change', this.onModelChange.bind(this));
         this.model.addEventListener('dirtyTransform', this.onModelDirtyTransform.bind(this));
+        this.model.addEventListener('dirtyMaterial', this.onModelDirtyMaterial.bind(this));
     }
 
     /** Gets the underlying THREE.Group */
@@ -62,6 +63,10 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         this.updateTransforms();
     }
 
+    private onModelDirtyMaterial(_event: any): void {
+        this.updateMaterials();
+    }
+
     // ─── Geometry rebuild ──────────────────────────────────────────────────────
 
     /**
@@ -70,7 +75,7 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
     private updateGeometry(): void {
         const group = this.node as THREE.Group;
 
-        // Dispose old meshes and materials
+        // Dispose old JSCAD meshes and materials
         for (const mesh of this.meshes) {
             mesh.geometry.dispose();
             group.remove(mesh);
@@ -78,8 +83,18 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         for (const mat of this.threeMaterials) {
             mat.dispose();
         }
-        // Remove old GLB groups
+        // Dispose old GLB groups (geometry + materials) and remove from scene
         for (const g of this.glbGroups) {
+            g.traverse((child: any) => {
+                if (child instanceof THREE.Mesh) {
+                    child.geometry.dispose();
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach((m: THREE.Material) => m.dispose());
+                    } else {
+                        (child.material as THREE.Material)?.dispose();
+                    }
+                }
+            });
             group.remove(g);
         }
         this.meshes = [];
@@ -89,13 +104,14 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         // Build JSCAD parametric geometry (if any)
         const graphData = this.model.getGraphData();
         if (graphData && graphData.items.length > 0) {
-            for (const item of graphData.items) {
+            for (let i = 0; i < graphData.items.length; i++) {
+                const item = graphData.items[i];
                 const geometry = jscadToThreeGeometry(item.geometry);
                 if (!geometry) continue;
                 geometry.computeBoundingSphere();
 
-                const mat = item.material ? createThreeMaterial(item.material) : this.defaultMaterial;
-                if (item.material) {
+                const mat = this._getThreeMaterial(i, item.material);
+                if (mat !== this.defaultMaterial) {
                     this.threeMaterials.push(mat);
                 }
 
@@ -112,6 +128,69 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         this.loadGlbModels();
     }
 
+    /**
+     * Resolve the THREE material for a mesh at the given index.
+     * Prefers the editable Material instance on the model; falls back to
+     * the raw MaterialData from the JSON; finally uses the default material.
+     */
+    private _getThreeMaterial(index: number, fallbackData: any): THREE.Material {
+        const matModel = this.model.materials[index];
+        if (matModel) {
+            const threeMat = matModel.toThreeMaterial();
+            threeMat.side = THREE.DoubleSide;
+            return threeMat;
+        }
+        if (fallbackData) {
+            return createThreeMaterial(fallbackData);
+        }
+        return this.defaultMaterial;
+    }
+
+    /**
+     * Update THREE materials on existing meshes without rebuilding geometry.
+     * Called when Material instances on the model are edited.
+     * Updates both JSCAD meshes and GLB model meshes.
+     */
+    private updateMaterials(): void {
+        const graphData = this.model.getGraphData();
+        if (!graphData) return;
+
+        // Dispose old tracked materials
+        for (const mat of this.threeMaterials) {
+            mat.dispose();
+        }
+        this.threeMaterials = [];
+
+        const jscadCount = graphData.items.length;
+
+        // Update JSCAD mesh materials
+        for (let i = 0; i < this.meshes.length && i < jscadCount; i++) {
+            const mesh = this.meshes[i];
+            const item = graphData.items[i];
+            const mat = this._getThreeMaterial(i, item.material);
+            if (mat !== this.defaultMaterial) {
+                this.threeMaterials.push(mat);
+            }
+            mesh.material = mat;
+        }
+
+        // Update GLB model materials
+        for (let i = 0; i < this.glbGroups.length; i++) {
+            const matIndex = jscadCount + i;
+            const matModel = this.model.materials[matIndex];
+            if (matModel) {
+                const threeMat = matModel.toThreeMaterial();
+                threeMat.side = THREE.DoubleSide;
+                this.threeMaterials.push(threeMat);
+                this.glbGroups[i].traverse((child: any) => {
+                    if (child instanceof THREE.Mesh) {
+                        child.material = threeMat;
+                    }
+                });
+            }
+        }
+    }
+
     // ─── GLB model loading ─────────────────────────────────────────────────────
 
     /**
@@ -124,8 +203,10 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
         if (!models || models.length === 0) return;
 
         const group = this.node as THREE.Group;
+        const jscadCount = this.model.getGraphData()?.items.length ?? 0;
 
-        for (const modelDef of models) {
+        for (let glbIndex = 0; glbIndex < models.length; glbIndex++) {
+            const modelDef = models[glbIndex];
             // Resolve asset path: strip '@designer/assets/' prefix → use '/assets/' URL
             const glbPath = modelDef.glb.replace(/^@designer\/assets\//, '/assets/');
 
@@ -144,6 +225,20 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
 
                     group.add(glbScene);
                     this.glbGroups.push(glbScene);
+
+                    // Apply editable material from the model if available
+                    const matIndex = jscadCount + glbIndex;
+                    const matModel = this.model.materials[matIndex];
+                    if (matModel) {
+                        const threeMat = matModel.toThreeMaterial();
+                        threeMat.side = THREE.DoubleSide;
+                        this.threeMaterials.push(threeMat);
+                        glbScene.traverse((child: any) => {
+                            if (child instanceof THREE.Mesh) {
+                                child.material = threeMat;
+                            }
+                        });
+                    }
 
                     // Apply current transforms (global on group + local on GLB)
                     this.updateTransforms();

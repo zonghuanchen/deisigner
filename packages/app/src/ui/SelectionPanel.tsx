@@ -565,8 +565,8 @@ function TexturePicker({
     );
 }
 
-function MaterialItem({ materialModel, label }: { materialModel: Material; label: string }) {
-    const [open, setOpen] = useState(false);
+function MaterialItem({ materialModel, label, defaultOpen = false }: { materialModel: Material; label: string; defaultOpen?: boolean }) {
+    const [open, setOpen] = useState(defaultOpen);
     const materialData = useModelListener(materialModel, 'change');
     const [pickerKey, setPickerKey] = useState<string | null>(null);
     const entries = Object.entries(materialData).filter(([k]) => k !== 'id');
@@ -724,104 +724,6 @@ function MaterialItem({ materialModel, label }: { materialModel: Material; label
     );
 }
 
-function MaterialSection({ material, materialModel }: { material: Record<string, any>; materialModel: Material }) {
-    const [open, setOpen] = useState(true);
-    const [pickerKey, setPickerKey] = useState<string | null>(null);
-    const entries = Object.entries(material).filter(([k]) => k !== 'id');
-
-    const handleTextureSelect = useCallback(
-        (key: string, src: string) => {
-            if (!src) {
-                (materialModel as any)[key] = null;
-                return;
-            }
-            textureLoader.load(src, (texture) => {
-                texture.colorSpace = THREE.SRGBColorSpace;
-                texture.name = src.split('/').pop() ?? src;
-                texture.repeat.set(2, 2);  // Tile 2x2 times across the floor
-                texture.wrapS = THREE.RepeatWrapping;
-                texture.wrapT = THREE.RepeatWrapping;
-                (materialModel as any)[key] = texture;
-            });
-        },
-        [materialModel],
-    );
-
-    return (
-        <div className="flex flex-col gap-1 border-b border-gray-700/60 pb-3">
-            <button
-                className="flex items-center gap-1.5 text-left group"
-                onClick={() => setOpen(o => !o)}
-            >
-                <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
-                    {open ? '▾' : '▸'}
-                </span>
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
-            </button>
-            {open && (
-                <div className="flex flex-col gap-1.5 ml-1 pl-2 border-l border-gray-700/40">
-                    {entries.map(([key, value]) => (
-                        <div key={key} className="flex items-start gap-2">
-                            <span className="text-[11px] text-gray-500 font-mono shrink-0 w-20">
-                                {MATERIAL_LABELS[key] ?? key}
-                            </span>
-                            {key === 'color' ? (
-                                <div className="flex items-center gap-1.5">
-                                    <span
-                                        className="inline-block w-3 h-3 rounded-sm border border-gray-600"
-                                        style={{ backgroundColor: value }}
-                                    />
-                                    <span className="text-xs text-gray-200 font-mono">{value}</span>
-                                </div>
-                            ) : TEXTURE_KEYS.has(key) ? (
-                                <div className="relative">
-                                    <button
-                                        className="flex flex-col gap-0.5 cursor-pointer group/tex hover:opacity-80 transition-opacity"
-                                        onClick={() => setPickerKey(pickerKey === key ? null : key)}
-                                    >
-                                        {value ? (
-                                            <>
-                                                {value.src && (
-                                                    <img
-                                                        src={value.src}
-                                                        alt={value.name ?? key}
-                                                        className="w-10 h-10 object-cover rounded border border-gray-600 group-hover/tex:border-blue-400 transition-colors"
-                                                    />
-                                                )}
-                                                {value.name && (
-                                                    <span className="text-xs text-gray-300 font-mono truncate max-w-32">
-                                                        {value.name}
-                                                    </span>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <span className="w-10 h-10 rounded border border-dashed border-gray-600 group-hover/tex:border-blue-400 flex items-center justify-center text-gray-600 group-hover/tex:text-blue-400 text-lg transition-colors">
-                                                +
-                                            </span>
-                                        )}
-                                    </button>
-                                    {pickerKey === key && (
-                                        <TexturePicker
-                                            currentSrc={value?.src ?? null}
-                                            onSelect={(src) => handleTextureSelect(key, src)}
-                                            onClose={() => setPickerKey(null)}
-                                        />
-                                    )}
-                                </div>
-                            ) : typeof value === 'boolean' ? (
-                                <span className={`text-xs font-mono ${value ? 'text-green-400' : 'text-gray-500'}`}>
-                                    {value ? '是' : '否'}
-                                </span>
-                            ) : (
-                                <span className="text-xs text-gray-200 font-mono">{formatValue(value)}</span>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
 
 export function SelectionPanel() {
     const selectionManager = CoreApp.getInstance().getSelectionManager();
@@ -835,7 +737,12 @@ export function SelectionPanel() {
     const materialModel = (firstModel && 'material' in firstModel && firstModel.material instanceof Material)
         ? firstModel.material
         : null;
-    const materialUIData = useModelListener(materialModel, 'change');
+    // Reactive material data - triggers re-render on material change (hooks must be before early return)
+    useModelListener(materialModel, 'change');
+
+    // Listen to V2 material changes so the materials section re-renders
+    const v2ModelForListener = firstModel instanceof ParametricModelV2 ? firstModel : null;
+    useModelListener(v2ModelForListener, 'dirtyMaterial');
 
     if (count === 0 || !first) return null;
 
@@ -847,9 +754,10 @@ export function SelectionPanel() {
     const isFurniture = firstModel instanceof FurnitureModel;
     const hasTransform = isParametric || isParametricV2 || isFurniture;
     const parametricMaterials = isParametric ? (firstModel as ParametricModel).materials : [];
+    const parametricV2Materials = isParametricV2 ? (firstModel as ParametricModelV2).materials : [];
+    const v2JscadCount = isParametricV2 ? ((firstModel as ParametricModelV2).graphData?.items.length ?? 0) : 0;
+    const v2ModelLabels = isParametricV2 ? ((firstModel as ParametricModelV2).json?.models ?? []).map(m => m.label) : [];
 
-    // Reactive material data from useModelListener
-    const materialData = Object.keys(materialUIData).length > 0 ? materialUIData : null;
     const excludeKeys = new Set(['id', 'outerContour', 'innerContours', 'material']);
     if (hasTransform) {
         excludeKeys.add('position');
@@ -865,6 +773,7 @@ export function SelectionPanel() {
         excludeKeys.add('variables');
         excludeKeys.add('constraintVariables');
         excludeKeys.add('items');
+        excludeKeys.add('materials');
     }
     const props = Object.entries(first).filter(([k]) => !excludeKeys.has(k));
 
@@ -922,6 +831,32 @@ export function SelectionPanel() {
                 </div>
             )}
 
+            {/* Materials for ParametricModelV2 */}
+            {isParametricV2 && parametricV2Materials.length > 0 && (
+                <div className="px-4 py-3 border-b border-gray-700/60">
+                    <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+                        <span className="text-[11px] text-gray-500 font-mono">{parametricV2Materials.length} 个材质</span>
+                        <div className="flex flex-col gap-2 ml-1">
+                            {parametricV2Materials.map((mat, i) => {
+                                const isGlb = i >= v2JscadCount;
+                                const label = isGlb
+                                    ? (v2ModelLabels[i - v2JscadCount] ?? `模型 ${i - v2JscadCount + 1}`)
+                                    : `形状 ${i + 1}`;
+                                return mat ? (
+                                    <MaterialItem key={mat.id ?? i} materialModel={mat} label={label} />
+                                ) : (
+                                    <div key={`null-${i}`} className="flex items-center gap-1.5">
+                                        <span className="text-[11px] font-semibold text-emerald-400/80">{label}</span>
+                                        <span className="text-[11px] text-gray-500 font-mono">无材质</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Structured materials for ParametricModel */}
             {isParametric && parametricMaterials.length > 0 && (
                 <div className="px-4 py-3 border-b border-gray-700/60">
@@ -944,10 +879,15 @@ export function SelectionPanel() {
                 </div>
             )}
 
-            {/* Material section */}
-            {materialData && materialModel && (
-                <div className="px-4 py-3">
-                    <MaterialSection material={materialData} materialModel={materialModel} />
+            {/* Material section for non-parametric models (Wall, Floor, Face, etc.) */}
+            {materialModel && (
+                <div className="px-4 py-3 border-b border-gray-700/60">
+                    <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+                        <div className="flex flex-col gap-2 ml-1">
+                            <MaterialItem materialModel={materialModel} label="材质" defaultOpen />
+                        </div>
+                    </div>
                 </div>
             )}
 
