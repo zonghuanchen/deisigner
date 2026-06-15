@@ -130,8 +130,9 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
 
     /**
      * Resolve the THREE material for a mesh at the given index.
-     * Prefers the editable Material instance on the model; falls back to
-     * the raw MaterialData from the JSON; finally uses the default material.
+     * - If the user has set a Material at this index → use it (user override).
+     * - Otherwise → use the item's own built-in MaterialData from the JSON.
+     * - Final fallback → default grey material.
      */
     private _getThreeMaterial(index: number, fallbackData: any): THREE.Material {
         const matModel = this.model.materials[index];
@@ -174,7 +175,7 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
             mesh.material = mat;
         }
 
-        // Update GLB model materials
+        // Update GLB model materials (only if user has explicitly set one)
         for (let i = 0; i < this.glbGroups.length; i++) {
             const matIndex = jscadCount + i;
             const matModel = this.model.materials[matIndex];
@@ -188,6 +189,7 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
                     }
                 });
             }
+            // No matModel → keep GLB's own built-in materials
         }
     }
 
@@ -226,7 +228,7 @@ export class ParametricV2 extends DisplayObject3D<ParametricModelV2> {
                     group.add(glbScene);
                     this.glbGroups.push(glbScene);
 
-                    // Apply editable material from the model if available
+                    // Only override GLB materials if user has explicitly set one at this index
                     const matIndex = jscadCount + glbIndex;
                     const matModel = this.model.materials[matIndex];
                     if (matModel) {

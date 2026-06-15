@@ -372,7 +372,12 @@ export class ParametricModelV2 extends BaseModel {
      */
     private _buildMaterials(items: GeometryItem[], glbModels: GlbModelJson[]): void {
         this._unbindMaterialListeners();
-        const jscadMaterials = items.map(item => {
+        const oldMaterials = this._materials;
+        const jscadMaterials = items.map((item, i) => {
+            // Preserve existing user-edited material if present
+            if (i < oldMaterials.length && oldMaterials[i]) {
+                return oldMaterials[i];
+            }
             if (!item.material) return null;
             const md = item.material;
             return new Material({
@@ -381,7 +386,12 @@ export class ParametricModelV2 extends BaseModel {
                 metalness: md.metalness,
             });
         });
-        const glbMaterials = glbModels.map(m => {
+        const glbMaterials = glbModels.map((m, i) => {
+            const idx = items.length + i;
+            // Preserve existing user-edited material if present
+            if (idx < oldMaterials.length && oldMaterials[idx]) {
+                return oldMaterials[idx];
+            }
             if (m.material) {
                 return new Material({
                     color: m.material.color,
@@ -389,12 +399,8 @@ export class ParametricModelV2 extends BaseModel {
                     metalness: m.material.metalness,
                 });
             }
-            // Create a default editable material for GLB models without explicit material
-            return new Material({
-                color: '#cccccc',
-                roughness: 0.5,
-                metalness: 0.0,
-            });
+            // No explicit material → null, so the display layer keeps the GLB's own materials
+            return null;
         });
         this._materials = [...jscadMaterials, ...glbMaterials];
         this._bindMaterialListeners();

@@ -848,7 +848,15 @@ export function SelectionPanel() {
                                 ) : (
                                     <div key={`null-${i}`} className="flex items-center gap-1.5">
                                         <span className="text-[11px] font-semibold text-emerald-400/80">{label}</span>
-                                        <span className="text-[11px] text-gray-500 font-mono">无材质</span>
+                                        <span className="text-[11px] text-gray-500 font-mono">原始材质</span>
+                                        <button
+                                            className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors ml-auto px-1"
+                                            onClick={() => {
+                                                (firstModel as ParametricModelV2).setMaterial(i, new Material());
+                                            }}
+                                        >
+                                            + 添加
+                                        </button>
                                     </div>
                                 );
                             })}
@@ -871,6 +879,17 @@ export function SelectionPanel() {
                                     <div key={`null-${i}`} className="flex items-center gap-1.5">
                                         <span className="text-[11px] font-semibold text-emerald-400/80">形状 {i + 1}</span>
                                         <span className="text-[11px] text-gray-500 font-mono">无材质</span>
+                                        <button
+                                            className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors ml-auto px-1"
+                                            onClick={() => {
+                                                const pm = firstModel as ParametricModel;
+                                                const mats = [...pm.materials];
+                                                mats[i] = new Material();
+                                                pm.materials = mats;
+                                            }}
+                                        >
+                                            + 添加
+                                        </button>
                                     </div>
                                 ),
                             )}
