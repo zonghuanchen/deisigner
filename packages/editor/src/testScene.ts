@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material,ParametricModelV2, PresetRegion } from '@designer/core';
-import { ParametricDef } from '@designer/core/util';
+import { ParametricDef } from '@designer/pm-engine';
 import { RoomBuilder } from '@designer/core/util';
 import { FurnitureType } from '@designer/core/types';
 
