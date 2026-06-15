@@ -1,4 +1,44 @@
 import * as THREE from 'three';
+import type { BaseRegion } from '../pave/Region';
+
+/**
+ * Paving pattern types
+ */
+export type PavePattern = 'straight' | 'brick' | 'herringbone' | 'diagonal';
+
+/**
+ * Pave data describing tile-paving layout on a surface.
+ */
+export interface PaveData {
+    /** Whether paving is enabled */
+    enabled: boolean;
+    /** Tile width in world units */
+    tileWidth: number;
+    /** Tile height in world units */
+    tileHeight: number;
+    /** Gap (grout line) between tiles in world units */
+    gap: number;
+    /** Paving pattern */
+    pattern: PavePattern;
+    /** Rotation of the paving pattern in radians */
+    rotation: number;
+    /** U offset of the paving origin in world units */
+    offsetU: number;
+    /** V offset of the paving origin in world units */
+    offsetV: number;
+}
+
+/** Default pave settings */
+export const DEFAULT_PAVE: PaveData = {
+    enabled: false,
+    tileWidth: 0.6,
+    tileHeight: 0.6,
+    gap: 0.002,
+    pattern: 'straight',
+    rotation: 0,
+    offsetU: 0,
+    offsetV: 0,
+};
 
 /**
   * Material class for managing 3D material data.
@@ -17,6 +57,8 @@ export class Material extends THREE.EventDispatcher<any> {
     protected _roughnessMap: THREE.Texture | null;
     protected _metalnessMap: THREE.Texture | null;
     protected _isDirty: boolean;
+    protected _pave: PaveData;
+    protected _regions: BaseRegion[] = [];
 
     constructor(options?: {
         id?: string;
@@ -30,6 +72,7 @@ export class Material extends THREE.EventDispatcher<any> {
         normalMap?: THREE.Texture | null;
         roughnessMap?: THREE.Texture | null;
         metalnessMap?: THREE.Texture | null;
+        pave?: Partial<PaveData>;
     }) {
         super();
         
@@ -45,6 +88,7 @@ export class Material extends THREE.EventDispatcher<any> {
         this._roughnessMap = options?.roughnessMap ?? null;
         this._metalnessMap = options?.metalnessMap ?? null;
         this._isDirty = false;
+        this._pave = { ...DEFAULT_PAVE, ...options?.pave };
     }
 
     /**
@@ -196,6 +240,33 @@ export class Material extends THREE.EventDispatcher<any> {
     }
 
     /**
+      * Gets or sets the pave (tiling layout) data
+      */
+    get pave(): PaveData {
+        return this._pave;
+    }
+
+    set pave(value: Partial<PaveData>) {
+        this._pave = { ...this._pave, ...value };
+        this.markDirty();
+    }
+
+    /**
+     * Gets or sets the paving regions for this material.
+     * Each region defines a sub-area with its own tile pattern.
+     * When regions.length > 0 the face uses regional paving;
+     * when empty, the entire face uses the default material.
+     */
+    get regions(): BaseRegion[] {
+        return this._regions;
+    }
+
+    set regions(value: BaseRegion[]) {
+        this._regions = value;
+        this.markDirty();
+    }
+
+    /**
       * Gets whether the material has been modified since last clean state
       */
     get isDirty(): boolean {
@@ -288,6 +359,7 @@ export class Material extends THREE.EventDispatcher<any> {
             transparent: this._transparent,
             opacity: this._opacity,
             map: this.serializeTexture(this._map),
+            pave: { ...this._pave },
         };
     }
 }

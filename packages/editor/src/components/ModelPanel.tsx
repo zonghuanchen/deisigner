@@ -41,8 +41,8 @@ export function ModelPanel() {
     const selectionManager = CoreApp.getInstance().getSelectionManager();
     const selectionData = useModelListener(selectionManager);
     const hasSelection = (selectionData.count ?? 0) > 0;
-    // SelectionPanel is w-72 (18rem); offset the left edge when it is visible
-    const leftOffset = hasSelection ? 'left-72' : 'left-0';
+    // SelectionPanel is w-80 (20rem); offset the left edge when it is visible
+    const leftOffset = hasSelection ? 'left-80' : 'left-0';
 
     const handleDrawWall = useCallback(() => {
         const cmdManager = CommandManager.getInstance();

@@ -3,6 +3,7 @@ import { BaseModel } from './BaseModel';
 import { ModelRegistry } from '../ModelRegistry';
 import { FACE_MODEL } from '../types';
 import { Material } from '../material/Material';
+import type { Path3D, PaveBuildResult } from '../pave/Pattern';
 
 /**
  * Result of face UV plane computation.
@@ -35,10 +36,33 @@ export interface FaceEventMap {
     change: FaceChangeEvent;
 }
 
+/**
+ * A single paving element produced by FaceModel.getGraphData().
+ * - `tile`   : a filled tile polygon using the face/region material
+ * - `gap`    : a gap polygon using the gap material
+ * - `face`   : the entire face polygon (used when no paving regions exist)
+ */
+export interface FaceGraphItem {
+    type: 'tile' | 'gap' | 'face';
+    /** Closed 3D polygon path for this element */
+    path: THREE.Vector3[];
+    /** Material to apply (face material for tiles/face, gap material for gaps) */
+    material: Material;
+}
+
+/**
+ * Result of FaceModel.getGraphData(): a list of graphical elements
+ * (tiles, gaps, or a single face) ready for the display layer to consume.
+ */
+export interface FaceGraphData {
+    items: FaceGraphItem[];
+}
+
 export class FaceModel extends BaseModel {
     private _outerContour: THREE.Vector3[] =[];
     private _innerContours: THREE.Vector3[][] = [];
     private _material: Material = new Material();
+    private _onMaterialChange = () => this.dirty();
 
     constructor(
         outerContour: THREE.Vector3[] = [],
@@ -51,7 +75,7 @@ export class FaceModel extends BaseModel {
         this._innerContours = innerContours.map(contour =>
             contour.map(point => point.clone())
         );
-        this._material = material;
+        this.setMaterial(material);
         this.dirty();
     }
 
@@ -198,8 +222,22 @@ export class FaceModel extends BaseModel {
       * @param value - The new material
       */
     set material(value: Material) {
-        this._material = value;
+        this.setMaterial(value);
         this.dirty();
+    }
+
+    /**
+     * Internal helper: unsubscribe from old material, subscribe to new material
+     * so that any material change (including regions) triggers face dirty.
+     */
+    private setMaterial(value: Material): void {
+        if (this._material) {
+            this._material.removeEventListener('change', this._onMaterialChange);
+        }
+        this._material = value;
+        if (this._material) {
+            this._material.addEventListener('change', this._onMaterialChange);
+        }
     }
 
     /**
@@ -211,7 +249,7 @@ export class FaceModel extends BaseModel {
     }
 
     /**
-     * Computes the UV plane basis and projects all contour points onto it.
+     * Compute the UV plane basis and projects all contour points onto it.
      *
      * Builds a local 2D coordinate system on the face plane using the outer contour:
      * - origin: first point of outer contour
@@ -312,6 +350,69 @@ export class FaceModel extends BaseModel {
             innerContours: this._innerContours.map(c => c.map(p => ({ x: p.x, y: p.y, z: p.z }))),
             material: this._material.getUI(),
         };
+    }
+
+    // ─── Paving Graph Data ──────────────────────────────────────────────────
+
+    /**
+     * Generate graphical elements for the face based on its material's paving regions.
+     *
+     * - If material.regions.length > 0: each region is rebuilt and the resulting
+     *   tile/gap 3D paths are returned directly (patterns project to 3D internally).
+     * - If material.regions.length == 0: the entire face outer contour is returned
+     *   as a single `face` item with the face material.
+     *
+     * The display layer consumes these items to build meshes and lines.
+     */
+    getGraphData(): FaceGraphData {
+        const uvData = this.computeUVData();
+        if (!uvData) return { items: [] };
+
+        const { origin, uAxis, vAxis } = uvData;
+        const regions = this._material.regions;
+
+        // ── No paving regions: return the full face as one item ──────────
+        if (regions.length === 0) {
+            return {
+                items: [{
+                    type: 'face',
+                    path: this._outerContour.map(p => p.clone()),
+                    material: this._material,
+                }],
+            };
+        }
+
+        // ── Regional paving: set plane and rebuild each region ───────────
+        const items: FaceGraphItem[] = [];
+
+        for (const region of regions) {
+            // Set plane basis on pattern so it can project 3D↔2D internally
+            if (region.pattern) {
+                region.pattern.setPlane(origin, uAxis, vAxis);
+            }
+            const result: PaveBuildResult = region.rebuild();
+
+            // Tile paths → already 3D, use the face material
+            for (const tilePath of result.tilePaths) {
+                items.push({
+                    type: 'tile',
+                    path: tilePath,
+                    material: this._material,
+                });
+            }
+
+            // Gap paths → already 3D, use the gap material from the region's pattern (or face material as fallback)
+            const gapMat = region.pattern?.gapMaterial ?? this._material;
+            for (const gapPath of result.gapPaths) {
+                items.push({
+                    type: 'gap',
+                    path: gapPath,
+                    material: gapMat,
+                });
+            }
+        }
+
+        return { items };
     }
 }
 

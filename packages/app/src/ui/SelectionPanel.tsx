@@ -74,17 +74,17 @@ interface SliderRowProps {
 function SliderRow({ label, value, min, max, step, onChange }: SliderRowProps) {
     return (
         <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400 w-4 text-right font-mono">{label}</span>
+            <span className="text-[11px] text-gray-400 w-5 text-center font-mono shrink-0">{label}</span>
             <input
                 type="range"
                 min={min}
                 max={max}
                 step={step}
                 value={value}
-                className="flex-1 h-1 accent-blue-500 cursor-pointer"
+                className="flex-1 h-1.5 accent-blue-500 cursor-pointer rounded-full appearance-auto min-w-0"
                 onChange={e => onChange(parseFloat(e.target.value))}
             />
-            <span className="text-xs text-gray-300 w-12 text-right font-mono tabular-nums">
+            <span className="text-[11px] text-gray-300 w-10 text-right font-mono tabular-nums shrink-0">
                 {Math.round(value * 100) / 100}
             </span>
         </div>
@@ -471,11 +471,11 @@ function TransformSection({ model, event = 'transformChange' }: TransformSection
     );
 
     const sectionTitle = (title: string) => (
-        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-2 first:mt-0">{title}</span>
+        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-2.5 first:mt-0">{title}</span>
     );
 
     return (
-        <div className="flex flex-col gap-1 border-b border-gray-700/60 pb-3">
+        <div className="flex flex-col gap-1.5 border-b border-gray-700/60 pb-3">
             {sectionTitle('位置')}
             <SliderRow label="X" value={pos.x} min={-20} max={20} step={0.1} onChange={v => setPos('x', v)} />
             <SliderRow label="Y" value={pos.y} min={-20} max={20} step={0.1} onChange={v => setPos('y', v)} />
@@ -611,18 +611,18 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
     );
 
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2 rounded-lg bg-gray-800/50 p-2.5">
             <button
-                className="flex items-center gap-1.5 text-left group"
+                className="flex items-center gap-2 text-left group"
                 onClick={() => setOpen(o => !o)}
             >
                 <span className="text-[10px] text-gray-500 group-hover:text-gray-300 transition-colors">
                     {open ? '▾' : '▸'}
                 </span>
-                <span className="text-[11px] font-semibold text-emerald-400/80">{label}</span>
+                <span className="text-xs font-semibold text-emerald-400/90">{label}</span>
                 {materialData.color && (
                     <span
-                        className="inline-block w-2.5 h-2.5 rounded-sm border border-gray-600"
+                        className="inline-block w-3 h-3 rounded border border-gray-600"
                         style={{ backgroundColor: materialData.color }}
                     />
                 )}
@@ -630,46 +630,46 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
                     <img
                         src={materialData.map.src}
                         alt=""
-                        className="w-3 h-3 rounded-sm border border-gray-600 object-cover"
+                        className="w-3.5 h-3.5 rounded border border-gray-600 object-cover"
                     />
                 )}
             </button>
             {open && (
-                <div className="flex flex-col gap-1.5 ml-1 pl-2 border-l border-gray-700/40">
+                <div className="flex flex-col gap-2.5 ml-1 pl-2.5 border-l-2 border-emerald-500/15">
                     {entries.map(([key, value]) => (
-                        <div key={key} className="flex items-start gap-2">
-                            <span className="text-[11px] text-gray-500 font-mono shrink-0 w-20">
+                        <div key={key} className="flex flex-col gap-1">
+                            <span className="text-[11px] text-gray-400 font-medium">
                                 {MATERIAL_LABELS[key] ?? key}
                             </span>
                             {key === 'color' ? (
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-2">
                                     <input
                                         type="color"
                                         value={value ?? '#cccccc'}
-                                        className="w-5 h-5 rounded-sm border border-gray-600 cursor-pointer bg-transparent p-0"
+                                        className="w-6 h-6 rounded border border-gray-600 cursor-pointer bg-transparent p-0"
                                         onChange={e => handleColorChange(e.target.value)}
                                     />
-                                    <span className="text-xs text-gray-200 font-mono">{value}</span>
+                                    <span className="text-[11px] text-gray-200 font-mono">{value}</span>
                                 </div>
                             ) : key === 'metalness' || key === 'roughness' || key === 'opacity' ? (
-                                <div className="flex items-center gap-2 flex-1">
+                                <div className="flex items-center gap-2">
                                     <input
                                         type="range"
                                         min={0}
                                         max={1}
                                         step={0.01}
                                         value={value ?? 0}
-                                        className="flex-1 h-1 accent-emerald-500 cursor-pointer"
+                                        className="flex-1 h-1.5 accent-emerald-500 cursor-pointer rounded-full appearance-auto min-w-0"
                                         onChange={e => handleNumericChange(key, parseFloat(e.target.value))}
                                     />
-                                    <span className="text-xs text-gray-300 font-mono tabular-nums w-8 text-right">
+                                    <span className="text-[11px] text-gray-300 font-mono tabular-nums w-9 text-right shrink-0">
                                         {Math.round((value ?? 0) * 100) / 100}
                                     </span>
                                 </div>
                             ) : TEXTURE_KEYS.has(key) ? (
                                 <div className="relative">
                                     <button
-                                        className="flex flex-col gap-0.5 cursor-pointer group/tex hover:opacity-80 transition-opacity"
+                                        className="flex items-center gap-2 cursor-pointer group/tex hover:opacity-80 transition-opacity"
                                         onClick={() => setPickerKey(pickerKey === key ? null : key)}
                                     >
                                         {value ? (
@@ -678,17 +678,17 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
                                                     <img
                                                         src={value.src}
                                                         alt={value.name ?? key}
-                                                        className="w-10 h-10 object-cover rounded border border-gray-600 group-hover/tex:border-blue-400 transition-colors"
+                                                        className="w-10 h-10 object-cover rounded border border-gray-600 group-hover/tex:border-blue-400 transition-colors shrink-0"
                                                     />
                                                 )}
                                                 {value.name && (
-                                                    <span className="text-xs text-gray-300 font-mono truncate max-w-32">
+                                                    <span className="text-[11px] text-gray-300 font-mono truncate min-w-0">
                                                         {value.name}
                                                     </span>
                                                 )}
                                             </>
                                         ) : (
-                                            <span className="w-10 h-10 rounded border border-dashed border-gray-600 group-hover/tex:border-blue-400 flex items-center justify-center text-gray-600 group-hover/tex:text-blue-400 text-lg transition-colors">
+                                            <span className="w-10 h-10 rounded border border-dashed border-gray-600 group-hover/tex:border-blue-400 flex items-center justify-center text-gray-600 group-hover/tex:text-blue-400 text-lg transition-colors shrink-0">
                                                 +
                                             </span>
                                         )}
@@ -702,19 +702,31 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
                                     )}
                                 </div>
                             ) : typeof value === 'boolean' ? (
-                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={value}
-                                        className="accent-emerald-500"
-                                        onChange={e => handleBoolChange(key, e.target.checked)}
-                                    />
-                                    <span className={`text-xs font-mono ${value ? 'text-green-400' : 'text-gray-500'}`}>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <div
+                                        className={`w-8 h-4.5 rounded-full relative transition-colors cursor-pointer ${
+                                            value ? 'bg-emerald-500' : 'bg-gray-600'
+                                        }`}
+                                        style={{ height: 18 }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={value}
+                                            className="sr-only"
+                                            onChange={e => handleBoolChange(key, e.target.checked)}
+                                        />
+                                        <div
+                                            className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow transition-transform ${
+                                                value ? 'translate-x-4' : 'translate-x-0.5'
+                                            }`}
+                                        />
+                                    </div>
+                                    <span className={`text-[11px] font-mono ${value ? 'text-emerald-400' : 'text-gray-500'}`}>
                                         {value ? '是' : '否'}
                                     </span>
                                 </label>
                             ) : (
-                                <span className="text-xs text-gray-200 font-mono">{formatValue(value)}</span>
+                                <span className="text-[11px] text-gray-200 font-mono break-all">{formatValue(value)}</span>
                             )}
                         </div>
                     ))}
@@ -779,19 +791,19 @@ export function SelectionPanel() {
 
     return (
         <div
-            className="absolute left-0 top-0 bottom-0 w-72 bg-gray-900/90 border-r border-gray-700 pointer-events-auto overflow-y-auto flex flex-col"
+            className="absolute left-0 top-0 bottom-0 w-80 bg-gray-900/95 border-r border-gray-700/80 pointer-events-auto overflow-y-auto flex flex-col"
             style={{ backdropFilter: 'blur(8px)' }}
         >
             {/* Header */}
-            <div className="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-gray-700/80 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">属性面板</span>
+                    <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">属性面板</span>
                     {count > 1 && (
-                        <span className="text-xs bg-blue-600 text-white rounded px-1.5 py-0.5">{count}</span>
+                        <span className="text-[10px] bg-blue-600/90 text-white rounded-full px-2 py-0.5 font-medium">{count}</span>
                     )}
                 </div>
                 <button
-                    className="text-gray-400 hover:text-white text-xs"
+                    className="text-gray-500 hover:text-gray-200 text-[11px] transition-colors px-1.5 py-0.5 rounded hover:bg-gray-700/50"
                     onClick={() => selectionManager.clear()}
                 >
                     取消选择
@@ -799,12 +811,12 @@ export function SelectionPanel() {
             </div>
 
             {/* Model type */}
-            <div className="px-4 py-3 border-b border-gray-700/60">
+            <div className="px-4 py-2.5 border-b border-gray-700/60 shrink-0">
                 <div className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
-                    <span className="text-sm font-medium text-white">{label}</span>
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50" />
+                    <span className="text-sm font-medium text-gray-100">{label}</span>
                 </div>
-                <p className="mt-1 text-xs text-gray-500 font-mono truncate">{first.id}</p>
+                <p className="mt-1 text-[11px] text-gray-500 font-mono truncate" title={first.id}>{first.id}</p>
             </div>
 
             {/* Transform sliders for ParametricModel and FurnitureModel */}
@@ -833,11 +845,13 @@ export function SelectionPanel() {
 
             {/* Materials for ParametricModelV2 */}
             {isParametricV2 && parametricV2Materials.length > 0 && (
-                <div className="px-4 py-3 border-b border-gray-700/60">
+                <div className="px-3 py-3 border-b border-gray-700/60">
                     <div className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
-                        <span className="text-[11px] text-gray-500 font-mono">{parametricV2Materials.length} 个材质</span>
-                        <div className="flex flex-col gap-2 ml-1">
+                        <div className="flex items-center gap-2 px-1">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+                            <span className="text-[10px] text-gray-600 font-mono">{parametricV2Materials.length}个</span>
+                        </div>
+                        <div className="flex flex-col gap-2">
                             {parametricV2Materials.map((mat, i) => {
                                 const isGlb = i >= v2JscadCount;
                                 const label = isGlb
@@ -867,11 +881,13 @@ export function SelectionPanel() {
 
             {/* Structured materials for ParametricModel */}
             {isParametric && parametricMaterials.length > 0 && (
-                <div className="px-4 py-3 border-b border-gray-700/60">
+                <div className="px-3 py-3 border-b border-gray-700/60">
                     <div className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
-                        <span className="text-[11px] text-gray-500 font-mono">{parametricMaterials.length} 个材质</span>
-                        <div className="flex flex-col gap-2 ml-1">
+                        <div className="flex items-center gap-2 px-1">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
+                            <span className="text-[10px] text-gray-600 font-mono">{parametricMaterials.length}个</span>
+                        </div>
+                        <div className="flex flex-col gap-2">
                             {parametricMaterials.map((mat, i) =>
                                 mat ? (
                                     <MaterialItem key={mat.id ?? i} materialModel={mat} label={`形状 ${i + 1}`} />
@@ -900,12 +916,12 @@ export function SelectionPanel() {
 
             {/* Material section for non-parametric models (Wall, Floor, Face, etc.) */}
             {materialModel && (
-                <div className="px-4 py-3 border-b border-gray-700/60">
+                <div className="px-3 py-3 border-b border-gray-700/60">
                     <div className="flex flex-col gap-2">
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
-                        <div className="flex flex-col gap-2 ml-1">
-                            <MaterialItem materialModel={materialModel} label="材质" defaultOpen />
+                        <div className="flex items-center gap-2 px-1">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
                         </div>
+                        <MaterialItem materialModel={materialModel} label="材质" defaultOpen />
                     </div>
                 </div>
             )}

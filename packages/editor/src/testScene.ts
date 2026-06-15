@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material,ParametricModelV2 } from '@designer/core';
+import { SceneModel, WallModel, FurnitureModel, ParametricModel, Material,ParametricModelV2, PresetRegion } from '@designer/core';
 import { ParametricDef } from '@designer/core/util';
 import { RoomBuilder } from '@designer/core/util';
 import { FurnitureType } from '@designer/core/types';
@@ -75,17 +75,35 @@ export function setupTestScene(scene: SceneModel): void {
         scene.addRoom(room);
     }
     
-    // Defer material assignment to ensure Face display objects have registered their listeners
+    // Defer paving region setup to ensure Face display objects have registered their listeners
     Promise.resolve().then(() => {
         for (const room of rooms) {
-            const material = room.groundFace.material;
-            const texture = new THREE.TextureLoader().load('/assets/material-1.jpg');
-            // Set texture repeat to control how many times the texture tiles across the floor
-            // Adjust these values based on your texture size and desired appearance
-            texture.repeat.set(2, 2);  // Tile 2x2 times across the floor
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            material.map = texture;
+            const face = room.groundFace;
+            const material = face.material;
+
+            // Project 3D face contours to 2D using the face UV basis
+            const uvData = face.computeUVData();
+            if (!uvData) continue;
+
+            const { origin, uAxis, vAxis, outerProjected, innerProjected } = uvData;
+
+            // Convert 2D projected paths back to 3D for the paving region
+            const to3D = (p: { x: number; y: number }) =>
+                origin.clone()
+                    .add(uAxis.clone().multiplyScalar(p.x))
+                    .add(vAxis.clone().multiplyScalar(p.y));
+
+            // Create a straight paving (直铺) region covering the entire ground face
+            const region = new PresetRegion(
+                outerProjected.map(to3D),
+                innerProjected.map(inner => inner.map(to3D)),
+                'zhipu',
+            );
+            region.pattern!.tileWidth  = 0.6;
+            region.pattern!.tileHeight = 0.6;
+            region.pattern!.gap        = 0.003;
+
+            material.regions = [region];
         }
     });
     // Defer furniture creation to avoid triggering display object creation during construction

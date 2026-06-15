@@ -57,5 +57,6 @@ export * from './model/index';
 export * from './material/index';
 export * from './selection/index';
 export * from './util/index';
+export * from './pave/index';
 export * from './types';
 export { ModelRegistry } from './ModelRegistry';
