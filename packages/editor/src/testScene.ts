@@ -97,7 +97,7 @@ export function setupTestScene(scene: SceneModel): void {
             const region = new PresetRegion(
                 outerProjected.map(to3D),
                 innerProjected.map(inner => inner.map(to3D)),
-                'zhipu',
+                'gongzi',
             );
             region.pattern!.tileWidth  = 0.6;
             region.pattern!.tileHeight = 0.6;

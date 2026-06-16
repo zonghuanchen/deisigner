@@ -159,6 +159,32 @@ function segmentIntersect(
 }
 
 /**
+ * Find the intersection point of segment (a1→a2) with the infinite line through (l1→l2).
+ * Only t (parameter along the segment) is constrained to [0,1];
+ * the line extends infinitely so u is unrestricted.
+ * Used by Sutherland-Hodgman which clips against half-planes, not finite segments.
+ */
+function segmentLineIntersect(
+    a1: Vec2, a2: Vec2,
+    l1: Vec2, l2: Vec2,
+): { point: Vec2; t: number } | null {
+    const dx1 = a2.x - a1.x;
+    const dy1 = a2.y - a1.y;
+    const dx2 = l2.x - l1.x;
+    const dy2 = l2.y - l1.y;
+    const denom = dx1 * dy2 - dy1 * dx2;
+    if (Math.abs(denom) < 1e-10) return null; // parallel
+    const t = ((l1.x - a1.x) * dy2 - (l1.y - a1.y) * dx2) / denom;
+    const eps = 1e-8;
+    if (t < -eps || t > 1 + eps) return null;
+    const tc = Math.max(0, Math.min(1, t));
+    return {
+        point: new THREE.Vector2(a1.x + tc * dx1, a1.y + tc * dy1),
+        t: tc,
+    };
+}
+
+/**
  * Sutherland-Hodgman polygon clipping: clip subject polygon to be inside the clip polygon.
  * Both polygons should have CCW winding (or will be corrected).
  * Returns null if the result is empty.
@@ -183,11 +209,11 @@ function clipPolygonInside(subject: Path2, clip: Path2): Path2 | null {
                 if (nextInside) {
                     output.push(next);
                 } else {
-                    const inter = segmentIntersect(current, next, edgeFrom, edgeTo);
+                    const inter = segmentLineIntersect(current, next, edgeFrom, edgeTo);
                     if (inter) output.push(inter.point);
                 }
             } else if (nextInside) {
-                const inter = segmentIntersect(current, next, edgeFrom, edgeTo);
+                const inter = segmentLineIntersect(current, next, edgeFrom, edgeTo);
                 if (inter) output.push(inter.point);
                 output.push(next);
             }
@@ -601,7 +627,8 @@ export abstract class BasePattern {
 
         for (let row = 0; row < rows; row++) {
             const rowShift = (row % 2) * rowOffsetX * stepX;
-            for (let col = 0; col < cols; col++) {
+            const colStart = (rowOffsetX > 0 && row % 2 !== 0) ? -1 : 0;
+            for (let col = colStart; col < cols; col++) {
                 const x = startX + col * stepX + rowShift;
                 const y = startY + row * stepY;
 
