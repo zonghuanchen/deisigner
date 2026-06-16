@@ -56,7 +56,7 @@ export class Scene3DManager {
         );
 
         // Initialize renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: false });
 
         // Setup camera model integration (must precede controls creation)
         this.setupCameraModel();

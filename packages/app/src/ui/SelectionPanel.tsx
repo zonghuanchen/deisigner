@@ -8,6 +8,9 @@ import { FurnitureModel } from '@designer/core/model/FurnitureModel';
 import { GroundModel } from '@designer/core/model/GroundModel';
 import { CeilingModel } from '@designer/core/model/CeilingModel';
 import { Material } from '@designer/core/material/Material';
+import { FaceModel } from '@designer/core/model/FaceModel';
+import { PresetRegion } from '@designer/core/pave/Region';
+import type { PatternType } from '@designer/core/pave/Pattern';
 import type { ParametricDef, BooleanOp } from '@designer/pm-engine';
 import type { ConstraintVariableMeta } from '@designer/core/model/ParametricModelV2';
 
@@ -95,6 +98,12 @@ const BOOL_LABELS: Record<string, string> = {
     union: '并集',
     subtract: '差集',
     intersect: '交集',
+};
+
+const PATTERN_LABELS: Record<PatternType, string> = {
+    none: '无铺法',
+    zhipu: '直铺',
+    gongzi: '工字铺',
 };
 
 const SIZE_AXIS_LABELS = ['X', 'Y', 'Z'];
@@ -565,7 +574,7 @@ function TexturePicker({
     );
 }
 
-function MaterialItem({ materialModel, label, defaultOpen = false }: { materialModel: Material; label: string; defaultOpen?: boolean }) {
+function MaterialItem({ materialModel, label, defaultOpen = false, onChange }: { materialModel: Material; label: string; defaultOpen?: boolean; onChange?: () => void }) {
     const [open, setOpen] = useState(defaultOpen);
     const materialData = useModelListener(materialModel, 'change');
     const [pickerKey, setPickerKey] = useState<string | null>(null);
@@ -575,6 +584,7 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
         (key: string, src: string) => {
             if (!src) {
                 (materialModel as any)[key] = null;
+                onChange?.();
                 return;
             }
             textureLoader.load(src, (texture) => {
@@ -584,30 +594,34 @@ function MaterialItem({ materialModel, label, defaultOpen = false }: { materialM
                 texture.wrapS = THREE.RepeatWrapping;
                 texture.wrapT = THREE.RepeatWrapping;
                 (materialModel as any)[key] = texture;
+                onChange?.();
             });
         },
-        [materialModel],
+        [materialModel, onChange],
     );
 
     const handleColorChange = useCallback(
         (hex: string) => {
             materialModel.color = hex;
+            onChange?.();
         },
-        [materialModel],
+        [materialModel, onChange],
     );
 
     const handleNumericChange = useCallback(
         (key: string, v: number) => {
             (materialModel as any)[key] = v;
+            onChange?.();
         },
-        [materialModel],
+        [materialModel, onChange],
     );
 
     const handleBoolChange = useCallback(
         (key: string, v: boolean) => {
             (materialModel as any)[key] = v;
+            onChange?.();
         },
-        [materialModel],
+        [materialModel, onChange],
     );
 
     return (
@@ -752,9 +766,13 @@ export function SelectionPanel() {
     // Reactive material data - triggers re-render on material change (hooks must be before early return)
     useModelListener(materialModel, 'change');
 
-    // Listen to V2 material changes so the materials section re-renders
+    // Listen to v2 material changes so the materials section re-renders
     const v2ModelForListener = firstModel instanceof ParametricModelV2 ? firstModel : null;
     useModelListener(v2ModelForListener, 'dirtyMaterial');
+
+    // Listen to face changes so the regions section re-renders
+    const faceModelForListener = firstModel instanceof FaceModel ? firstModel : null;
+    useModelListener(faceModelForListener, 'change');
 
     if (count === 0 || !first) return null;
 
@@ -764,6 +782,7 @@ export function SelectionPanel() {
     const isParametric = firstModel instanceof ParametricModel;
     const isParametricV2 = firstModel instanceof ParametricModelV2;
     const isFurniture = firstModel instanceof FurnitureModel;
+    const isFaceModel = firstModel instanceof FaceModel;
     const hasTransform = isParametric || isParametricV2 || isFurniture;
     const parametricMaterials = isParametric ? (firstModel as ParametricModel).materials : [];
     const parametricV2Materials = isParametricV2 ? (firstModel as ParametricModelV2).materials : [];
@@ -922,6 +941,73 @@ export function SelectionPanel() {
                             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">材质</span>
                         </div>
                         <MaterialItem materialModel={materialModel} label="材质" defaultOpen />
+                    </div>
+                </div>
+            )}
+
+            {/* Region patterns for FaceModel */}
+            {isFaceModel && firstModel instanceof FaceModel && firstModel.material.regions.length > 0 && (
+                <div className="px-3 py-3 border-b border-gray-700/60">
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 px-1">
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">铺贴区域</span>
+                            <span className="text-[10px] text-gray-600 font-mono">{firstModel.material.regions.length}个</span>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            {firstModel.material.regions.map((region, i) => {
+                                const presetRegion = region instanceof PresetRegion ? region : null;
+                                const currentType = presetRegion?.patternType ?? null;
+                                return (
+                                    <div key={i} className="flex flex-col gap-1.5 rounded-lg bg-gray-800/50 p-2.5">
+                                        <span className="text-[11px] font-semibold text-emerald-400/80">区域 {i + 1}</span>
+                                        {presetRegion && currentType ? (
+                                            <div className="flex flex-col gap-1.5">
+                                                <span className="text-[11px] text-gray-400">铺贴方式</span>
+                                                <select
+                                                    className="text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1 text-gray-200 focus:outline-none focus:border-blue-500"
+                                                    value={currentType}
+                                                    onChange={e => {
+                                                        const newType = e.target.value as PatternType;
+                                                        presetRegion.setPatternType(newType);
+                                                        firstModel.dirty();
+                                                    }}
+                                                >
+                                                    {(['none', 'zhipu', 'gongzi'] as PatternType[]).map(type => (
+                                                        <option key={type} value={type}>
+                                                            {PATTERN_LABELS[type] ?? type}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {currentType !== 'none' && presetRegion.pattern && (
+                                                    <div className="flex flex-col gap-2 mt-1 pl-2.5 border-l-2 border-emerald-500/15">
+                                                        {/* Pattern properties */}
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="text-[10px] text-gray-500 uppercase tracking-wider">砖块参数</span>
+                                                            <SliderRow label="宽" value={presetRegion.pattern.tileWidth} min={0.05} max={3} step={0.01} onChange={v => { presetRegion.pattern!.tileWidth = v; firstModel.dirty(); }} />
+                                                            <SliderRow label="高" value={presetRegion.pattern.tileHeight} min={0.05} max={3} step={0.01} onChange={v => { presetRegion.pattern!.tileHeight = v; firstModel.dirty(); }} />
+                                                            <SliderRow label="缝" value={presetRegion.pattern.gap} min={0} max={0.05} step={0.001} onChange={v => { presetRegion.pattern!.gap = v; firstModel.dirty(); }} />
+                                                            <SliderRow label="转" value={presetRegion.pattern.rotation} min={-Math.PI} max={Math.PI} step={0.01} onChange={v => { presetRegion.pattern!.rotation = v; firstModel.dirty(); }} />
+                                                            <SliderRow label="U偏" value={presetRegion.pattern.offsetU} min={-3} max={3} step={0.01} onChange={v => { presetRegion.pattern!.offsetU = v; firstModel.dirty(); }} />
+                                                            <SliderRow label="V偏" value={presetRegion.pattern.offsetV} min={-3} max={3} step={0.01} onChange={v => { presetRegion.pattern!.offsetV = v; firstModel.dirty(); }} />
+                                                        </div>
+                                                        {/* Tile material */}
+                                                        {presetRegion.pattern.material && (
+                                                            <MaterialItem materialModel={presetRegion.pattern.material} label="砖材质" onChange={() => firstModel.dirty()} />
+                                                        )}
+                                                        {/* Gap material */}
+                                                        {presetRegion.pattern.gapMaterial && (
+                                                            <MaterialItem materialModel={presetRegion.pattern.gapMaterial} label="缝材质" onChange={() => firstModel.dirty()} />
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="text-[11px] text-gray-500 font-mono">无预设模式</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
             )}

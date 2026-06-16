@@ -359,7 +359,7 @@ export class Material extends THREE.EventDispatcher<any> {
             transparent: this._transparent,
             opacity: this._opacity,
             map: this.serializeTexture(this._map),
-            pave: { ...this._pave },
+            regions: this._regions.map(r => r.getUI()),
         };
     }
 }

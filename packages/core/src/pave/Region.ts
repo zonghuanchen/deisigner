@@ -1,4 +1,5 @@
 import { BasePattern, createPattern, Path3D, PatternType, PaveBuildResult } from './Pattern';
+import { Material } from '../material/Material';
 
 // ─── BaseRegion ──────────────────────────────────────────────────────────────
 
@@ -45,12 +46,19 @@ export abstract class BaseRegion {
      */
     rebuild(): PaveBuildResult {
         if (!this._pattern) {
-            return { tilePaths: [], gapPaths: [] };
+            return { tilePaths: [], tileUVs: [], gapPaths: [], material: new Material(), gapMaterial: null };
         }
         // Sync boundary paths to the pattern before rebuilding
         this._pattern.outerPath = this._outerPath;
         this._pattern.innerPaths = this._innerPaths;
         return this._pattern.rebuild();
+    }
+
+    /** Serialize region data for UI consumption. */
+    getUI(): Record<string, any> {
+        return {
+            pattern: this._pattern?.getUI() ?? null,
+        };
     }
 }
 
@@ -76,7 +84,9 @@ export class PresetRegion extends BaseRegion {
     constructor(outerPath: Path3D, innerPaths: Path3D[] = [], patternType: PatternType = 'zhipu') {
         super(outerPath, innerPaths);
         this._patternType = patternType;
-        this._pattern = createPattern(patternType, this._outerPath, this._innerPaths);
+        this._pattern = patternType === 'none'
+            ? null
+            : createPattern(patternType, this._outerPath, this._innerPaths);
     }
 
     /** The pattern type identifier used to construct this region's pattern. */
@@ -91,6 +101,12 @@ export class PresetRegion extends BaseRegion {
 
         const oldPattern = this._pattern;
         this._patternType = type;
+
+        if (type === 'none') {
+            this._pattern = null;
+            return;
+        }
+
         this._pattern = createPattern(type, this._outerPath, this._innerPaths);
 
         // Carry over settings from the previous pattern

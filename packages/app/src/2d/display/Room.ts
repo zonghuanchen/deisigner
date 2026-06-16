@@ -165,8 +165,8 @@ export class Room2D extends Base2DDisplay {
         // Fill with material texture or solid color
         const material = groundFace.material;
         const color = material.color.getHex();
-        if (this.pixiTexture) {
-            const matrix = this.computeTextureMatrix(uvData, material.map!);
+        if (this.pixiTexture && material.map) {
+            const matrix = this.computeTextureMatrix(uvData, material.map);
             this.roomGraphics.fill({
                 color,
                 texture: this.pixiTexture,

@@ -211,12 +211,19 @@ export class Face extends DisplayObject3D<FaceModel> {
         // quaternion=basisMatrix(u,v,normal), so child geometry (in face-plane 2D coords)
         // needs no extra rotation — identity quaternion lets the parent handle orientation.
 
-        // Assign UVs: child geometry vertices are in face-plane 2D (same local space as
-        // the parent mesh's ShapeGeometry). Use the parent mesh's quaternion and position
-        // so vertices are correctly transformed to world space before UV projection.
-        const uvData = { origin, uAxis: u, vAxis: v, normal: _normal,
-            outerProjected: projected, innerProjected: [] as THREE.Vector2[][] };
-        this.model.assignUVsToGeometry(geometry, uvData, this.mesh.quaternion, this.mesh.position);
+        // Assign UVs: prefer per-tile UVs computed by the pattern (0..1 per brick);
+        // fall back to face-wide UV projection when no tile UVs are available.
+        if (item.uvs && item.uvs.length === geometry.attributes.position.count) {
+            const uvArray: number[] = [];
+            for (const uv of item.uvs) {
+                uvArray.push(uv.x, uv.y);
+            }
+            geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvArray, 2));
+        } else {
+            const uvData = { origin, uAxis: u, vAxis: v, normal: _normal,
+                outerProjected: projected, innerProjected: [] as THREE.Vector2[][] };
+            this.model.assignUVsToGeometry(geometry, uvData, this.mesh.quaternion, this.mesh.position);
+        }
 
         return mesh;
     }

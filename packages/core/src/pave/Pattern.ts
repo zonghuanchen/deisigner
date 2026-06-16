@@ -11,16 +11,23 @@ export type Path3D = THREE.Vector3[];
 /**
  * Supported paving pattern type identifiers.
  */
-export type PatternType = 'zhipu' | 'gongzi';
+export type PatternType = 'none' | 'zhipu' | 'gongzi';
 
 /**
- * Result produced by Pattern.rebuild(): the generated tile polygons and gap polylines.
+ * Result produced by Pattern.rebuild(): the generated tile polygons and gap polylines,
+ * together with the materials to apply to each layer.
  */
 export interface PaveBuildResult {
     /** Closed polygon paths for each tile (3D) */
     tilePaths: Path3D[];
+    /** Per-tile UV coordinates (0..1) aligned with tilePaths */
+    tileUVs: THREE.Vector2[][];
     /** Polyline paths for each gap segment (3D) */
     gapPaths: Path3D[];
+    /** Material for the tile layer */
+    material: Material;
+    /** Material for the gap layer (null means use tile material as fallback) */
+    gapMaterial: Material | null;
 }
 
 // ─── Utility: 2D geometry helpers (internal use) ─────────────────────────────
@@ -487,6 +494,9 @@ export abstract class BasePattern {
         this._outerPath = outerPath.map(p => p.clone());
         this._innerPaths = innerPaths.map(ip => ip.map(p => p.clone()));
         this._material = new Material();
+        this._material.color.setHex(0xcccccc);
+        this._gapMaterial = new Material();
+        this._gapMaterial.color.setHex(0x666666);
     }
 
     /**
@@ -537,6 +547,24 @@ export abstract class BasePattern {
      * Subclasses implement the specific layout algorithm.
      */
     abstract rebuild(): PaveBuildResult;
+
+    /** Pattern type identifier (e.g. 'zhipu', 'gongzi'). */
+    abstract get type(): PatternType;
+
+    /** Serialize pattern parameters for UI consumption. */
+    getUI(): Record<string, any> {
+        return {
+            type: this.type,
+            tileWidth: this._tileWidth,
+            tileHeight: this._tileHeight,
+            gap: this._gap,
+            rotation: this._rotation,
+            offsetU: this._offsetU,
+            offsetV: this._offsetV,
+            material: this._material.getUI(),
+            gapMaterial: this._gapMaterial?.getUI() ?? null,
+        };
+    }
 
     // ─── 3D↔2D projection helpers ──────────────────────────────────────────
 
@@ -623,6 +651,7 @@ export abstract class BasePattern {
         const startY = bb.minY - stepY + this._offsetV;
 
         const tilePaths2D: Path2[] = [];
+        const tileUVs2D: THREE.Vector2[][] = [];
         const gapPaths2D: Path2[] = [];
 
         for (let row = 0; row < rows; row++) {
@@ -641,10 +670,21 @@ export abstract class BasePattern {
                 // Clip tile against outer boundary and inner boundaries (holes)
                 const clippedTiles = clipPathByBoundaries(worldTile, outer2D, inners2D);
                 for (const ct of clippedTiles) {
-                    if (ct.length >= 3) tilePaths2D.push(ct);
+                    if (ct.length >= 3) {
+                        tilePaths2D.push(ct);
+                        // Compute per-vertex UVs by inverse-rotating back to local space
+                        const uvs = ct.map(p => {
+                            const pl = rotatePoint(p, -this._rotation, pivot);
+                            return new THREE.Vector2(
+                                (pl.x - x) / tw,
+                                (pl.y - y) / th,
+                            );
+                        });
+                        tileUVs2D.push(uvs);
+                    }
                 }
 
-                // Generate gap segments on the right and top edges, also clipped
+                // Generate gap segments on the right, top, and corner edges, also clipped
                 if (g > 0 && clippedTiles.length > 0) {
                     // Right edge gap
                     const gapRight = rotatePoints(
@@ -675,6 +715,21 @@ export abstract class BasePattern {
                     for (const cg of clipPathByBoundaries(gapTop, outer2D, inners2D)) {
                         if (cg.length >= 3) gapPaths2D.push(cg);
                     }
+
+                    // Corner gap (fills the square where right and top gaps of adjacent tiles meet)
+                    const gapCorner = rotatePoints(
+                        [
+                            new THREE.Vector2(x + tw, y + th),
+                            new THREE.Vector2(x + tw + g, y + th),
+                            new THREE.Vector2(x + tw + g, y + th + g),
+                            new THREE.Vector2(x + tw, y + th + g),
+                        ],
+                        this._rotation,
+                        pivot,
+                    );
+                    for (const cg of clipPathByBoundaries(gapCorner, outer2D, inners2D)) {
+                        if (cg.length >= 3) gapPaths2D.push(cg);
+                    }
                 }
             }
         }
@@ -682,7 +737,10 @@ export abstract class BasePattern {
         // Project 2D results back to 3D
         return {
             tilePaths: this._pathsTo3D(tilePaths2D),
+            tileUVs: tileUVs2D,
             gapPaths: this._pathsTo3D(gapPaths2D),
+            material: this._material,
+            gapMaterial: this._gapMaterial,
         };
     }
 }
@@ -694,6 +752,7 @@ export abstract class BasePattern {
  * Tiles are laid in a regular grid with no row offset.
  */
 export class StraightPattern extends BasePattern {
+    get type(): PatternType { return 'zhipu'; }
     rebuild(): PaveBuildResult {
         return this.buildGrid(0);
     }
@@ -706,6 +765,7 @@ export class StraightPattern extends BasePattern {
  * Alternate rows are offset by half a tile width.
  */
 export class BrickPattern extends BasePattern {
+    get type(): PatternType { return 'gongzi'; }
     rebuild(): PaveBuildResult {
         return this.buildGrid(0.5);
     }
