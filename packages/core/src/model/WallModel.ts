@@ -24,6 +24,47 @@ export interface WallHole {
     linkModelId?: string | null;
 }
 
+/**
+ * Intermediate geometry snapshot for wall face generation.
+ * Computed once per update and shared across hole classification and face building.
+ */
+interface WallGeometry {
+    /** Normalized wall direction (from → to) */
+    dir: THREE.Vector2;
+    /** Perpendicular to wall direction (left normal) */
+    perp: THREE.Vector2;
+    /** perp * halfWidth — offset from centerline to face edge */
+    offset: THREE.Vector2;
+    /** Wall length (from → to distance) */
+    length: number;
+    // Bottom vertices (z = 0)
+    blf: THREE.Vector3; blb: THREE.Vector3; brf: THREE.Vector3; brb: THREE.Vector3;
+    // Top vertices (z = height)
+    tlf: THREE.Vector3; tlb: THREE.Vector3; trf: THREE.Vector3; trb: THREE.Vector3;
+}
+
+/**
+ * Per-face hole contour data produced by classifyHoles().
+ * Each array contains inner contours (holes) for the corresponding face.
+ */
+interface HoleFaceData {
+    frontHoles: THREE.Vector3[][];
+    backHoles: THREE.Vector3[][];
+    frontCapHoles: THREE.Vector3[][];
+    backCapHoles: THREE.Vector3[][];
+    topFaceHoles: THREE.Vector3[][];
+    bottomFaceHoles: THREE.Vector3[][];
+}
+
+/**
+ * Configuration for creating or updating a single wall face.
+ */
+interface FaceConfig {
+    position: WallFacePosition;
+    vertices: THREE.Vector3[];
+    innerContours?: THREE.Vector3[][];
+}
+
 export interface WallChangeEvent {
     type: 'change';
     wall: WallModel;
@@ -36,7 +77,7 @@ export type WallChangeListener = (event: WallChangeEvent) => void;
  */
 export interface WallLink {
     wall: WallModel;
-    end: 'from' | 'to';
+    end: 'from' | 'to' | 'middle';
 }
 
 export interface WallEventMap {
@@ -344,7 +385,34 @@ export class WallModel extends BaseModel {
         };
     }
 
+    // ─── Face Generation ──────────────────────────────────────────────────
+
+    /**
+     * Orchestrates wall face generation:
+     * 1. Compute wall geometry snapshot
+     * 2. Classify holes into per-face contour data
+     * 3. Build face configs from geometry + holes
+     * 4. Apply configs to FaceModel instances
+     * 5. Update hole reveal faces
+     */
     private updateFaces(): void {
+        const geo = this.computeWallGeometry();
+        if (!geo) {
+            this.clearAllFaces();
+            return;
+        }
+        const holes = this.classifyHoles(geo);
+        const configs = this.buildFaceConfigs(geo, holes);
+        this.applyFaceConfigs(configs);
+        this.updateHoleRevealFaces(geo.dir, geo.offset);
+    }
+
+    /**
+     * Computes the wall geometry snapshot: direction, perpendicular, offset,
+     * and the 8 corner vertices of the wall box.
+     * Returns null if the wall has no valid dimensions.
+     */
+    private computeWallGeometry(): WallGeometry | null {
         const from = this._from;
         const to = this._to;
         const halfWidth = this._width / 2;
@@ -354,13 +422,7 @@ export class WallModel extends BaseModel {
         const length = direction.length();
 
         if (length === 0 || height === 0 || this._width === 0) {
-            // Clear faces if wall has no valid dimensions
-            for (const [position, face] of this._faces) {
-                this.removeChild(face);
-            }
-            this._faces.clear();
-            this.clearHoleRevealFaces();
-            return;
+            return null;
         }
 
         const dir = direction.clone().normalize();
@@ -379,23 +441,30 @@ export class WallModel extends BaseModel {
         const trb = new THREE.Vector3(to.x - offset.x, to.y - offset.y, height);
         const trf = new THREE.Vector3(to.x + offset.x, to.y + offset.y, height);
 
-        const wallLength = this._from.distanceTo(this._to);
+        return { dir, perp, offset, length, blf, blb, brf, brb, tlf, tlb, trf, trb };
+    }
 
-        // Compute inner contours for all faces based on holes
-        const frontHoles = this._holes.length > 0
-            ? this.computeHoleContours(dir, offset, false)
-            : undefined;
-        const backHoles = this._holes.length > 0
-            ? this.computeHoleContours(dir, offset, true)
-            : undefined;
+    /**
+     * Single-pass hole classifier: iterates all holes once and populates
+     * per-face contour arrays for all 6 face types.
+     */
+    private classifyHoles(geo: WallGeometry): HoleFaceData {
+        const result: HoleFaceData = {
+            frontHoles: [],
+            backHoles: [],
+            frontCapHoles: [],
+            backCapHoles: [],
+            topFaceHoles: [],
+            bottomFaceHoles: [],
+        };
 
-        const frontCapHoles: THREE.Vector3[][] = [];
-        const backCapHoles: THREE.Vector3[][] = [];
-        const topFaceHoles: THREE.Vector3[][] = [];
-        const bottomFaceHoles: THREE.Vector3[][] = [];
+        const { dir, offset, length } = geo;
+        const from = this._from;
+        const to = this._to;
+        const height = this._height;
 
         for (const hole of this._holes) {
-            const bounds = this.clampHoleBounds(hole, wallLength);
+            const bounds = this.clampHoleBounds(hole, length);
             if (!bounds) continue;
 
             const rawLeft = hole.position - hole.width / 2;
@@ -403,9 +472,15 @@ export class WallModel extends BaseModel {
             const rawBottom = hole.sillHeight;
             const rawTop = hole.sillHeight + hole.height;
 
+            // Front face (left/+offset side) hole contour
+            if (bounds.rightDist > bounds.leftDist && bounds.topZ > bounds.bottomZ) {
+                result.frontHoles.push(this.buildSideHoleContour(dir, offset, bounds, false));
+                result.backHoles.push(this.buildSideHoleContour(dir, offset, bounds, true));
+            }
+
             // Front end cap hole (at from-end)
             if (rawLeft <= 0 && bounds.topZ > bounds.bottomZ) {
-                frontCapHoles.push([
+                result.frontCapHoles.push([
                     new THREE.Vector3(from.x - offset.x, from.y - offset.y, bounds.bottomZ),
                     new THREE.Vector3(from.x - offset.x, from.y - offset.y, bounds.topZ),
                     new THREE.Vector3(from.x + offset.x, from.y + offset.y, bounds.topZ),
@@ -414,8 +489,8 @@ export class WallModel extends BaseModel {
             }
 
             // Back end cap hole (at to-end)
-            if (rawRight >= wallLength && bounds.topZ > bounds.bottomZ) {
-                backCapHoles.push([
+            if (rawRight >= length && bounds.topZ > bounds.bottomZ) {
+                result.backCapHoles.push([
                     new THREE.Vector3(to.x + offset.x, to.y + offset.y, bounds.bottomZ),
                     new THREE.Vector3(to.x + offset.x, to.y + offset.y, bounds.topZ),
                     new THREE.Vector3(to.x - offset.x, to.y - offset.y, bounds.topZ),
@@ -423,7 +498,7 @@ export class WallModel extends BaseModel {
                 ]);
             }
 
-            // Bottom face hole
+            // Bottom face hole (sill at ground level)
             if (rawBottom <= 0 && bounds.rightDist > bounds.leftDist) {
                 const pLeft = new THREE.Vector2().copy(from).add(
                     new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
@@ -431,7 +506,7 @@ export class WallModel extends BaseModel {
                 const pRight = new THREE.Vector2().copy(from).add(
                     new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
                 );
-                bottomFaceHoles.push([
+                result.bottomFaceHoles.push([
                     new THREE.Vector3(pLeft.x + offset.x, pLeft.y + offset.y, 0),
                     new THREE.Vector3(pLeft.x - offset.x, pLeft.y - offset.y, 0),
                     new THREE.Vector3(pRight.x - offset.x, pRight.y - offset.y, 0),
@@ -439,7 +514,7 @@ export class WallModel extends BaseModel {
                 ]);
             }
 
-            // Top face hole
+            // Top face hole (top above wall height)
             if (rawTop >= height && bounds.rightDist > bounds.leftDist) {
                 const pLeft = new THREE.Vector2().copy(from).add(
                     new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
@@ -447,7 +522,7 @@ export class WallModel extends BaseModel {
                 const pRight = new THREE.Vector2().copy(from).add(
                     new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
                 );
-                topFaceHoles.push([
+                result.topFaceHoles.push([
                     new THREE.Vector3(pLeft.x + offset.x, pLeft.y + offset.y, height),
                     new THREE.Vector3(pRight.x + offset.x, pRight.y + offset.y, height),
                     new THREE.Vector3(pRight.x - offset.x, pRight.y - offset.y, height),
@@ -456,16 +531,61 @@ export class WallModel extends BaseModel {
             }
         }
 
-        const faceConfigs: { position: WallFacePosition; vertices: THREE.Vector3[]; innerContours?: THREE.Vector3[][] }[] = [
-            { position: 'left',   vertices: [blf, brf, trf, tlf], innerContours: frontHoles },
-            { position: 'right',  vertices: [brb, blb, tlb, trb], innerContours: backHoles },
-            { position: 'front',  vertices: [blb, blf, tlf, tlb], innerContours: frontCapHoles.length > 0 ? frontCapHoles : undefined },
-            { position: 'back',   vertices: [brf, brb, trb, trf], innerContours: backCapHoles.length > 0 ? backCapHoles : undefined },
-            { position: 'top',    vertices: [tlf, tlb, trb, trf], innerContours: topFaceHoles.length > 0 ? topFaceHoles : undefined },
-            { position: 'bottom', vertices: [blf, brf, brb, blb], innerContours: bottomFaceHoles.length > 0 ? bottomFaceHoles : undefined },
-        ];
+        return result;
+    }
 
-        for (const config of faceConfigs) {
+    /**
+     * Builds a 3D hole contour on the front (+offset) or back (-offset) side face.
+     * Used by classifyHoles() for left/right face inner contours.
+     */
+    private buildSideHoleContour(
+        dir: THREE.Vector2,
+        offset: THREE.Vector2,
+        bounds: { leftDist: number; rightDist: number; bottomZ: number; topZ: number },
+        isBack: boolean
+    ): THREE.Vector3[] {
+        const faceOffset = isBack ? offset.clone().negate() : offset;
+        const from = this._from;
+
+        const pLeft = new THREE.Vector2().copy(from).add(
+            new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
+        );
+        const pRight = new THREE.Vector2().copy(from).add(
+            new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
+        );
+
+        const bl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.bottomZ);
+        const br = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.bottomZ);
+        const tr = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.topZ);
+        const tl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.topZ);
+
+        // Hole wound opposite to outer face for proper CSG behavior
+        return isBack ? [bl, br, tr, tl] : [bl, tl, tr, br];
+    }
+
+    /**
+     * Builds FaceConfig array from wall geometry and hole data.
+     * Maps each of the 6 wall faces to its vertex positions and inner contours.
+     */
+    private buildFaceConfigs(geo: WallGeometry, holes: HoleFaceData): FaceConfig[] {
+        const { blf, blb, brf, brb, tlf, tlb, trf, trb } = geo;
+        return [
+            { position: 'left',   vertices: [blf, brf, trf, tlf], innerContours: holes.frontHoles },
+            { position: 'right',  vertices: [brb, blb, tlb, trb], innerContours: holes.backHoles },
+            { position: 'front',  vertices: [blb, blf, tlf, tlb], innerContours: holes.frontCapHoles.length > 0 ? holes.frontCapHoles : undefined },
+            { position: 'back',   vertices: [brf, brb, trb, trf], innerContours: holes.backCapHoles.length > 0 ? holes.backCapHoles : undefined },
+            { position: 'top',    vertices: [tlf, tlb, trb, trf], innerContours: holes.topFaceHoles.length > 0 ? holes.topFaceHoles : undefined },
+            { position: 'bottom', vertices: [blf, brf, brb, blb], innerContours: holes.bottomFaceHoles.length > 0 ? holes.bottomFaceHoles : undefined },
+        ];
+    }
+
+    /**
+     * Applies face configs: reuses existing FaceModel instances (updating
+     * outerContour and innerContours) or creates new ones as needed.
+     * Preserves the FaceModel persistence invariant.
+     */
+    private applyFaceConfigs(configs: FaceConfig[]): void {
+        for (const config of configs) {
             let face = this._faces.get(config.position);
             if (face) {
                 face.outerContour = config.vertices;
@@ -476,9 +596,18 @@ export class WallModel extends BaseModel {
                 this.addChild(face);
             }
         }
+    }
 
-        // Update hole reveal faces (the sides of each opening)
-        this.updateHoleRevealFaces(dir, offset);
+    /**
+     * Clears all main wall faces and associated hole reveal faces.
+     * Called when the wall has no valid dimensions.
+     */
+    private clearAllFaces(): void {
+        for (const [, face] of this._faces) {
+            this.removeChild(face);
+        }
+        this._faces.clear();
+        this.clearHoleRevealFaces();
     }
 
     /**
@@ -915,50 +1044,8 @@ export class WallModel extends BaseModel {
         return { leftDist, rightDist, bottomZ, topZ };
     }
 
-    /**
-      * Computes 3D hole contours for the front or back face of the wall.
-      * Holes are clamped to the wall bounds.
-      * @param dir - Normalized wall direction vector
-      * @param offset - Perpendicular offset vector (half thickness)
-      * @param isBack - Whether to compute for the back face (uses -offset)
-      * @returns Array of hole contours, each as an array of 3D vertices
-      */
-    private computeHoleContours(
-        dir: THREE.Vector2,
-        offset: THREE.Vector2,
-        isBack: boolean
-    ): THREE.Vector3[][] {
-        const faceOffset = isBack ? offset.clone().negate() : offset;
-        const contours: THREE.Vector3[][] = [];
-        const wallLength = this._from.distanceTo(this._to);
-        for (const hole of this._holes) {
-            const bounds = this.clampHoleBounds(hole, wallLength);
-            if (!bounds) continue;
-
-            if (bounds.rightDist <= bounds.leftDist || bounds.topZ <= bounds.bottomZ) continue;
-
-            const pLeft = new THREE.Vector2().copy(this._from).add(
-                new THREE.Vector2().copy(dir).multiplyScalar(bounds.leftDist)
-            );
-            const pRight = new THREE.Vector2().copy(this._from).add(
-                new THREE.Vector2().copy(dir).multiplyScalar(bounds.rightDist)
-            );
-
-            const bl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.bottomZ);
-            const br = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.bottomZ);
-            const tr = new THREE.Vector3(pRight.x + faceOffset.x, pRight.y + faceOffset.y, bounds.topZ);
-            const tl = new THREE.Vector3(pLeft.x + faceOffset.x, pLeft.y + faceOffset.y, bounds.topZ);
-
-            // Hole wound opposite to outer face for proper CSG behavior
-            if (isBack) {
-                contours.push([bl, br, tr, tl]);
-            } else {
-                contours.push([bl, tl, tr, br]);
-            }
-        }
-
-        return contours;
-    }
+    // Note: Side-face hole contours (left/right) are now computed by
+    // buildSideHoleContour() inside classifyHoles().
 
     /**
       * Disposes all faces (wall faces, hole reveal faces, miter end caps)
