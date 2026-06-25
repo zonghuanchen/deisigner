@@ -59,7 +59,7 @@ export function setupTestScene(scene: SceneModel): void {
 
     // Internal partition wall — should create a hole in the floor contour
     const internalWall = new WallModel(
-        new THREE.Vector2(-3, 0),
+        new THREE.Vector2(-5, 0),
         new THREE.Vector2(5, 0),
         0.24,
         2.8
@@ -68,6 +68,8 @@ export function setupTestScene(scene: SceneModel): void {
     // Link internal wall to outer walls at T-junctions
     internalWall.addLink({ wall: wall4 });
     wall4.addLink({ wall: internalWall });
+    internalWall.addLink({ wall: wall2 });
+    wall2.addLink({ wall: internalWall });
 
     // Build rooms from walls
     const rooms = RoomBuilder.build(scene);

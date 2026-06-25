@@ -548,212 +548,16 @@ export class RoomBuilder {
     }
 
     /**
-     * Splits a single wall at every intersection with other walls on the same
-     * floor, and also splits each intersecting wall at the crossing point.
+     * Recomputes wall links on the floor after a new wall is added.
+     * No longer splits walls at intersections — wall joint (link) logic only.
      *
-     * - T-type: the input wall's interior passes through another wall's
-     *   endpoint → only the input wall is split.
-     * - T-type (reverse): another wall's interior passes through the input
-     *   wall's endpoint → only the other wall is split.
-     * - X-type: two walls cross in their interiors → both walls are split.
-     *
-     * The original wall (and each intersecting wall) is removed from the
-     * floor and replaced by its sub-segments. Returns the array of new wall
-     * segments that replaced the input wall.
-     *
-     * @param wall  - The wall to check and split.
+     * @param wall  - The wall that was just added.
      * @param floor - The floor that contains the wall and its sibling walls.
-     * @returns The wall segments that replaced the input wall.
+     * @returns The wall in a single-element array (no splitting).
      */
     static splitWalls(wall: WallModel, floor: FloorModel): WallModel[] {
-        const SPLIT_EPS = 1e-6;
-        const walls = floor.walls;
-
-        // Parametric split values along the input wall
-        const inputSplitTs: number[] = [];
-
-        // Intersecting walls and their split params: otherWall → t-values
-        const intersectingMap = new Map<string, { wall: WallModel; ts: number[] }>();
-
-        for (const other of walls) {
-            if (other.id === wall.id) continue;
-
-            const result = this.segmentIntersection(
-                wall.from, wall.to, other.from, other.to
-            );
-            if (!result) continue;
-
-            const { tA, tB } = result;
-
-            const interiorA = tA > SPLIT_EPS && tA < 1 - SPLIT_EPS;
-            const interiorB = tB > SPLIT_EPS && tB < 1 - SPLIT_EPS;
-
-            if (interiorA) {
-                inputSplitTs.push(tA);
-            }
-            if (interiorB) {
-                if (!intersectingMap.has(other.id)) {
-                    intersectingMap.set(other.id, { wall: other, ts: [] });
-                }
-                intersectingMap.get(other.id)!.ts.push(tB);
-            }
-        }
-
-        // Helper: split a wall at the given parametric values, remove the
-        // original from the floor, and add the sub-segments.
-        const applySplits = (
-            target: WallModel,
-            ts: number[]
-        ): WallModel[] => {
-            const sorted = [...new Set(ts)].sort((a, b) => a - b);
-            const from = target.from.clone();
-            const to = target.to.clone();
-
-            const points: THREE.Vector2[] = [from];
-            for (const t of sorted) {
-                const pt = new THREE.Vector2().lerpVectors(from, to, t);
-                if (pt.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
-                    points.push(pt);
-                }
-            }
-            if (to.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
-                points.push(to);
-            }
-
-            if (points.length < 2) return [target];
-
-            const newWalls: WallModel[] = [];
-            for (let k = 0; k < points.length - 1; k++) {
-                newWalls.push(
-                    new WallModel(points[k], points[k + 1], target.width, target.height)
-                );
-            }
-
-            floor.removeWall(target);
-            for (const nw of newWalls) {
-                floor.addWall(nw);
-            }
-            return newWalls;
-        };
-
-        // 1. Split each intersecting wall at the crossing point(s).
-        let didSplit = false;
-        for (const { wall: otherWall, ts } of intersectingMap.values()) {
-            const segs = applySplits(otherWall, ts);
-            if (segs.length > 1) didSplit = true;
-        }
-
-        // 2. Split the input wall. If no intersections hit its interior,
-        //    return the wall unchanged.
-        let result: WallModel[];
-        if (inputSplitTs.length === 0) {
-            result = [wall];
-        } else {
-            result = applySplits(wall, inputSplitTs);
-            if (result.length > 1) didSplit = true;
-        }
-
-        // 3. If any wall was actually split, recompute all links on the floor.
-        if (didSplit) {
-            this.recomputeWallLinks(floor);
-        }
-
-        return result;
-    }
-
-    /**
-     * Performs wall splitting on a single floor.
-     */
-    private static splitWallsOnFloor(floor: FloorModel): number {
-        const SPLIT_EPS = 1e-6;
-        let splitCount = 0;
-
-        // Map from wall id → sorted parametric split values along the wall
-        const splitMap = new Map<string, number[]>();
-
-        const walls = floor.walls;
-        for (let i = 0; i < walls.length; i++) {
-            for (let j = i + 1; j < walls.length; j++) {
-                const wallA = walls[i];
-                const wallB = walls[j];
-
-                const result = this.segmentIntersection(wallA.from, wallA.to, wallB.from, wallB.to);
-                if (!result) continue;
-
-                const { tA, tB } = result;
-
-                const interiorA = tA > SPLIT_EPS && tA < 1 - SPLIT_EPS;
-                const interiorB = tB > SPLIT_EPS && tB < 1 - SPLIT_EPS;
-
-                if (interiorA) {
-                    if (!splitMap.has(wallA.id)) splitMap.set(wallA.id, []);
-                    splitMap.get(wallA.id)!.push(tA);
-                }
-                if (interiorB) {
-                    if (!splitMap.has(wallB.id)) splitMap.set(wallB.id, []);
-                    splitMap.get(wallB.id)!.push(tB);
-                }
-
-                if (interiorA || interiorB) {
-                    splitCount++;
-                }
-            }
-        }
-
-        if (splitCount === 0) {
-            // Even without splits, refresh all links to ensure consistency.
-            this.recomputeWallLinks(floor);
-            return 0;
-        }
-
-        // Apply splits: for each wall with split points, remove original
-        // and create sub-walls between consecutive split parameters.
-        for (const [wallId, params] of splitMap) {
-            const wall = walls.find(w => w.id === wallId);
-            if (!wall) continue;
-
-            // De-duplicate and sort
-            const sorted = [...new Set(params)].sort((a, b) => a - b);
-
-            const from = wall.from.clone();
-            const to = wall.to.clone();
-            const width = wall.width;
-            const height = wall.height;
-
-            // Build ordered list of points: from → split points → to
-            const points: THREE.Vector2[] = [from];
-            for (const t of sorted) {
-                const pt = new THREE.Vector2().lerpVectors(from, to, t);
-                if (pt.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
-                    points.push(pt);
-                }
-            }
-            if (to.distanceTo(points[points.length - 1]) > this.POINT_TOLERANCE) {
-                points.push(to);
-            }
-
-            // Need at least 2 points to form a segment
-            if (points.length < 2) continue;
-
-            for (let k = 0; k < points.length - 1; k++) {
-                const newWall = new WallModel(
-                    points[k],
-                    points[k + 1],
-                    width,
-                    height
-                );
-                floor.addWall(newWall);
-            }
-
-            // Remove original wall
-            floor.removeWall(wall);
-        }
-
-        // After splitting, all old links reference removed walls.
-        // Clear and rebuild links from scratch based on shared endpoints.
         this.recomputeWallLinks(floor);
-
-        return splitCount;
+        return [wall];
     }
 
     /**
@@ -808,34 +612,45 @@ export class RoomBuilder {
                 }
             }
         }
-    }
 
-    /**
-     * Computes the intersection of two line segments A→B and C→D.
-     * Returns parametric values tAB ∈ [0,1] and tCD ∈ [0,1] if the
-     * segments intersect, or null if they do not.
-     *
-     * The parametric form is:
-     *   P = A + tAB * (B - A)   on segment AB
-     *   P = C + tCD * (D - C)   on segment CD
-     */
-    private static segmentIntersection(
-        a: THREE.Vector2, b: THREE.Vector2,
-        c: THREE.Vector2, d: THREE.Vector2
-    ): { tA: number; tB: number } | null {
-        const abx = b.x - a.x, aby = b.y - a.y;
-        const cdx = d.x - c.x, cdy = d.y - c.y;
-        const acx = c.x - a.x, acy = c.y - a.y;
+        // 4. Detect T-junctions: wall endpoints that lie on the interior
+        //    of another wall's centerline (not at its endpoints).
+        for (const wallA of walls) {
+            for (const wallB of walls) {
+                if (wallA.id === wallB.id) continue;
 
-        const denom = abx * cdy - aby * cdx;
-        if (Math.abs(denom) < 1e-10) return null; // parallel or coincident
+                const bFrom = wallB.from;
+                const bTo = wallB.to;
+                const bDir = new THREE.Vector2().subVectors(bTo, bFrom);
+                const bLength = bDir.length();
+                if (bLength < this.POINT_TOLERANCE) continue;
+                const bDirN = bDir.clone().normalize();
 
-        const tA = (acx * cdy - acy * cdx) / denom;
-        const tB = (acx * aby - acy * abx) / denom;
+                for (const [pt, endName] of [[wallA.from, 'from'], [wallA.to, 'to']] as const) {
+                    const toPt = new THREE.Vector2().subVectors(pt, bFrom);
+                    const proj = toPt.dot(bDirN);
+                    const perpDist = Math.abs(toPt.x * (-bDirN.y) + toPt.y * bDirN.x);
 
-        if (tA < -1e-8 || tA > 1 + 1e-8 || tB < -1e-8 || tB > 1 + 1e-8) return null;
+                    // Endpoint must be close to wall B's line and in its interior
+                    if (perpDist > this.POINT_TOLERANCE) continue;
+                    if (proj < this.POINT_TOLERANCE || proj > bLength - this.POINT_TOLERANCE) continue;
 
-        return { tA: Math.max(0, Math.min(1, tA)), tB: Math.max(0, Math.min(1, tB)) };
+                    // Skip if this endpoint already clusters with wall B's endpoint
+                    let alreadyLinked = false;
+                    for (let ci = 0; ci < clusterNodes.length; ci++) {
+                        if (clusterNodes[ci].distanceTo(pt) < this.POINT_TOLERANCE && clusterWalls[ci].has(wallB.id)) {
+                            alreadyLinked = true;
+                            break;
+                        }
+                    }
+                    if (alreadyLinked) continue;
+
+                    // wall A links at its endpoint, wall B links at middle
+                    wallA.addLink({ wall: wallB, end: endName });
+                    wallB.addLink({ wall: wallA, end: 'middle' });
+                }
+            }
+        }
     }
 
     /**

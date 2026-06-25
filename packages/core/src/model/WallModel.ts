@@ -98,6 +98,7 @@ export class WallModel extends BaseModel {
     private _holeRevealFaces: Map<string, FaceModel> = new Map();
     private _links: WallLink[] = [];
     private _miterEndCaps: Map<string, FaceModel> = new Map();
+    private _splitFaces: Map<string, FaceModel> = new Map();
 
     constructor(
         from: THREE.Vector2 = new THREE.Vector2(),
@@ -308,7 +309,7 @@ export class WallModel extends BaseModel {
       * If end is not provided, it is auto-computed by determining which
       * endpoint of this wall (from/to) is closest to the linked wall.
       */
-    addLink(link: Omit<WallLink, 'end'> & { end?: 'from' | 'to' }): void {
+    addLink(link: Omit<WallLink, 'end'> & { end?: 'from' | 'to' | 'middle' }): void {
         const end = link.end ?? this.computeLinkEnd(link.wall);
         const existing = this._links.find(
             l => l.wall.id === link.wall.id && l.end === end
@@ -340,7 +341,7 @@ export class WallModel extends BaseModel {
     /**
       * Removes a link to an adjacent wall
       */
-    removeLink(wallId: string, end: 'from' | 'to'): void {
+    removeLink(wallId: string, end: 'from' | 'to' | 'middle'): void {
         const index = this._links.findIndex(
             l => l.wall.id === wallId && l.end === end
         );
@@ -368,7 +369,7 @@ export class WallModel extends BaseModel {
     dirty(): void {
         this._isDirty = true;
         this.updateFaces();
-        this.updateMiterJoints();
+        this.updateJoints();
         this.dispatchEvent({ type: 'change', wall: this });
     }
 
@@ -608,6 +609,7 @@ export class WallModel extends BaseModel {
         }
         this._faces.clear();
         this.clearHoleRevealFaces();
+        this.clearSplitFaces();
     }
 
     /**
@@ -621,13 +623,23 @@ export class WallModel extends BaseModel {
     }
 
     /**
-      * Updates miter joint geometry at wall connections.
-      * Computes miter line intersections with wall edge lines, updates
-      * left/right/top/bottom face vertices at the linked end, removes
-      * the corresponding end cap face, and creates a miter face that
-      * perfectly closes the joint.
+      * Clears all split face parts created by middle-joint splitting.
       */
-    private updateMiterJoints(): void {
+    private clearSplitFaces(): void {
+        for (const face of this._splitFaces.values()) {
+            this.removeChild(face);
+        }
+        this._splitFaces.clear();
+    }
+
+    /**
+      * Updates joint geometry at wall connections.
+      * Dispatches to the appropriate handler based on connection type:
+      * - endpoint-to-endpoint: miter/bisector joint
+      * - endpoint-to-middle: T-junction patch face
+      * - middle-to-middle: cross-junction face splitting + patch face
+      */
+    private updateJoints(): void {
         const from = this._from;
         const to = this._to;
         const halfWidth = this._width / 2;
@@ -636,14 +648,12 @@ export class WallModel extends BaseModel {
         const direction = new THREE.Vector2().subVectors(to, from);
         const length = direction.length();
         const activeKeys = new Set<string>();
+
+        // Clear split faces from previous middle-joint computations
+        this.clearSplitFaces();
+
         if (length === 0) {
-            // Wall has no length; clean up all stale miter caps
-            for (const [key, face] of this._miterEndCaps) {
-                if (!activeKeys.has(key)) {
-                    this.removeChild(face);
-                    this._miterEndCaps.delete(key);
-                }
-            }
+            this.clearMiterEndCaps();
             return;
         }
 
@@ -655,73 +665,65 @@ export class WallModel extends BaseModel {
             const otherWall = link.wall;
             const otherFrom = otherWall.from;
             const otherTo = otherWall.to;
+            const otherLength = otherFrom.distanceTo(otherTo);
+            if (otherLength === 0) continue;
 
             const otherDir = new THREE.Vector2().subVectors(otherTo, otherFrom).normalize();
 
-            const isAtFromEnd = link.end === 'from';
-            const jointPoint = isAtFromEnd ? from : to;
+            const myIsMiddle = link.end === 'middle';
+            const jointPoint = myIsMiddle
+                ? new THREE.Vector2().copy(from).addScaledVector(dir, length / 2)
+                : (link.end === 'from' ? from : to);
 
-            // Determine which end of the other wall connects to this joint
+            // Determine which end of the other wall connects, or 'middle'
             const tolerance = 0.01;
+            let otherEndType: 'from' | 'to' | 'middle';
             let otherEndDir: THREE.Vector2;
 
             if (otherFrom.distanceTo(jointPoint) < tolerance) {
+                otherEndType = 'from';
                 otherEndDir = otherDir.clone();
             } else if (otherTo.distanceTo(jointPoint) < tolerance) {
+                otherEndType = 'to';
                 otherEndDir = otherDir.clone().negate();
             } else {
-                continue;
+                otherEndType = 'middle';
+                otherEndDir = otherDir.clone();
             }
 
-            // Calculate the bisector direction for the miter angle
-            const myDir = isAtFromEnd ? dir.clone().negate() : dir.clone();
-            const bisectorVec = new THREE.Vector2().addVectors(myDir, otherEndDir);
-            if (bisectorVec.lengthSq() < 1e-10) continue;
-            const bisector = bisectorVec.normalize();
-            const miterPerp = new THREE.Vector2(-bisector.y, bisector.x);
-
-            // Find intersections of miter line with the wall's +offset and -offset edge lines
-            const frontIntersect = this.findMiterEdgeIntersection(
-                dir, offset, jointPoint, miterPerp, true
-            );
-            const backIntersect = this.findMiterEdgeIntersection(
-                dir, offset, jointPoint, miterPerp, false
-            );
-
-            if (!frontIntersect || !backIntersect) continue;
-
-            // Update left/right/top/bottom face vertices at the linked end
-            this.updateFacesAtMiterEnd(isAtFromEnd, frontIntersect, backIntersect, height);
-
-            // Remove the end cap face at the linked end
-            const endCapPosition = isAtFromEnd ? 'front' : 'back';
-            const endCapFace = this._faces.get(endCapPosition);
-            if (endCapFace) {
-                this.removeChild(endCapFace);
-                this._faces.delete(endCapPosition);
-            }
-
-            // Compute hole contours that extend to the miter-linked end
-            const miterHoleContours = this.computeMiterHoleContours(
-                isAtFromEnd, miterPerp, dir, perp
-            );
-
-            // Create miter face using the intersection points
-            const p1 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, 0);
-            const p2 = new THREE.Vector3(backIntersect.x, backIntersect.y, 0);
-            const p3 = new THREE.Vector3(backIntersect.x, backIntersect.y, height);
-            const p4 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, height);
-
-            const miterKey = `${otherWall.id}-${link.end}`;
-            activeKeys.add(miterKey);
-            const existingMiter = this._miterEndCaps.get(miterKey);
-            if (existingMiter) {
-                existingMiter.outerContour = [p1, p2, p3, p4];
-                existingMiter.innerContours = miterHoleContours;
-            } else {
-                const miterFace = new FaceModel([p1, p2, p3, p4], miterHoleContours);
-                this._miterEndCaps.set(miterKey, miterFace);
-                this.addChild(miterFace);
+            if (!myIsMiddle && otherEndType !== 'middle') {
+                // Case 1: endpoint-to-endpoint (miter joint)
+                this.handleEndpointJoint(
+                    link.end === 'from', dir, perp, offset, jointPoint,
+                    otherEndDir, otherWall, link.end, height, activeKeys
+                );
+            } else if (!myIsMiddle && otherEndType === 'middle') {
+                // Case 2: my endpoint → other wall's midpoint
+                this.handleEndpointMiddleJoint(
+                    link.end === 'from', dir, perp, offset, jointPoint,
+                    otherWall, otherDir, link.end, height, activeKeys
+                );
+            } else if (myIsMiddle) {
+                // Case 3: my midpoint → other wall (middle or endpoint)
+                // For perpendicular T-junctions, do not split this wall's faces —
+                // the other wall simply terminates at this wall's body.
+                // Splitting would produce degenerate (zero-width) geometry when
+                // front and back intersection points converge.
+                const dotProduct = Math.abs(dir.dot(otherDir));
+                if (dotProduct < 0.01) {
+                    // Perpendicular T-junction: clean up any stale patch face
+                    const jtKey = `${otherWall.id}-${link.end}`;
+                    const staleFace = this._miterEndCaps.get(jtKey);
+                    if (staleFace) {
+                        this.removeChild(staleFace);
+                        this._miterEndCaps.delete(jtKey);
+                    }
+                } else {
+                    this.handleMiddleJoint(
+                        dir, perp, offset, jointPoint, length,
+                        otherWall, otherDir, link.end, height, activeKeys
+                    );
+                }
             }
         }
 
@@ -933,6 +935,355 @@ export class WallModel extends BaseModel {
         return contours;
     }
 
+    // ─── Joint Handlers ─────────────────────────────────────────────────
+
+    /**
+     * Handles endpoint-to-endpoint joint (existing miter/bisector logic).
+     * Both walls meet at their endpoints. Computes bisector, finds edge
+     * intersections, adjusts side faces, and creates a miter patch face.
+     */
+    private handleEndpointJoint(
+        isAtFromEnd: boolean,
+        dir: THREE.Vector2, perp: THREE.Vector2, offset: THREE.Vector2,
+        jointPoint: THREE.Vector2, otherEndDir: THREE.Vector2,
+        otherWall: WallModel, linkEnd: string,
+        height: number, activeKeys: Set<string>
+    ): void {
+        const myDir = isAtFromEnd ? dir.clone().negate() : dir.clone();
+        const bisectorVec = new THREE.Vector2().addVectors(myDir, otherEndDir);
+        if (bisectorVec.lengthSq() < 1e-10) return;
+        const bisector = bisectorVec.normalize();
+        const miterPerp = new THREE.Vector2(-bisector.y, bisector.x);
+
+        const frontIntersect = this.findMiterEdgeIntersection(
+            dir, offset, jointPoint, miterPerp, true
+        );
+        const backIntersect = this.findMiterEdgeIntersection(
+            dir, offset, jointPoint, miterPerp, false
+        );
+        if (!frontIntersect || !backIntersect) return;
+
+        this.updateFacesAtMiterEnd(isAtFromEnd, frontIntersect, backIntersect, height);
+
+        const endCapPosition = isAtFromEnd ? 'front' : 'back';
+        const endCapFace = this._faces.get(endCapPosition);
+        if (endCapFace) {
+            this.removeChild(endCapFace);
+            this._faces.delete(endCapPosition);
+        }
+
+        const miterHoleContours = this.computeMiterHoleContours(
+            isAtFromEnd, miterPerp, dir, perp
+        );
+
+        const p1 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, 0);
+        const p2 = new THREE.Vector3(backIntersect.x, backIntersect.y, 0);
+        const p3 = new THREE.Vector3(backIntersect.x, backIntersect.y, height);
+        const p4 = new THREE.Vector3(frontIntersect.x, frontIntersect.y, height);
+
+        const miterKey = `${otherWall.id}-${linkEnd}`;
+        activeKeys.add(miterKey);
+        const existingMiter = this._miterEndCaps.get(miterKey);
+        if (existingMiter) {
+            existingMiter.outerContour = [p1, p2, p3, p4];
+            existingMiter.innerContours = miterHoleContours;
+        } else {
+            const miterFace = new FaceModel([p1, p2, p3, p4], miterHoleContours);
+            this._miterEndCaps.set(miterKey, miterFace);
+            this.addChild(miterFace);
+        }
+    }
+
+    /**
+     * Handles endpoint-to-middle joint (T-junction).
+     * My wall's endpoint connects to the middle of the other wall.
+     * Finds where the other wall's edges cross my face planes,
+     * adjusts side faces, removes the end cap, and creates a patch face.
+     */
+    private handleEndpointMiddleJoint(
+        isAtFromEnd: boolean,
+        dir: THREE.Vector2, perp: THREE.Vector2, offset: THREE.Vector2,
+        jointPoint: THREE.Vector2,
+        otherWall: WallModel, otherDir: THREE.Vector2,
+        linkEnd: string, height: number, activeKeys: Set<string>
+    ): void {
+        // For perpendicular T-junctions, skip face modifications entirely.
+        // When the walls are perpendicular, all intersection points converge
+        // to the junction center, producing degenerate side faces.
+        const dotProduct = Math.abs(dir.dot(otherDir));
+        if (dotProduct < 0.01) return;
+
+        const halfWidth = this._width / 2;
+        const otherHalfWidth = otherWall.width / 2;
+        const otherPerp = new THREE.Vector2(-otherDir.y, otherDir.x);
+        const otherFrom = otherWall.from;
+
+        // Find where the other wall's front/back edges intersect my face planes.
+        // My front face plane: P · perp = jointPoint · perp + halfWidth
+        // My back face plane:  P · perp = jointPoint · perp - halfWidth
+        // Other wall front edge: P = otherFrom + otherOffset + t * otherDir
+        // Other wall back edge:  P = otherFrom - otherOffset + t * otherDir
+        const myFrontLevel = jointPoint.dot(perp) + halfWidth;
+        const myBackLevel = jointPoint.dot(perp) - halfWidth;
+        const otherFrontOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, otherHalfWidth);
+        const otherBackOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, -otherHalfWidth);
+
+        const denomFront = otherDir.dot(perp);
+        if (Math.abs(denomFront) < 1e-10) return; // walls are parallel
+
+        // Other wall's front edge vs my front face
+        const tFF = (myFrontLevel - otherFrontOrigin.dot(perp)) / denomFront;
+        const frontFront = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFF);
+
+        // Other wall's back edge vs my front face
+        const tBF = (myFrontLevel - otherBackOrigin.dot(perp)) / denomFront;
+        const backFront = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBF);
+
+        // Other wall's front edge vs my back face
+        const tFB = (myBackLevel - otherFrontOrigin.dot(perp)) / denomFront;
+        const frontBack = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFB);
+
+        // Other wall's back edge vs my back face
+        const tBB = (myBackLevel - otherBackOrigin.dot(perp)) / denomFront;
+        const backBack = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBB);
+
+        // Sort pairs along my wall direction to get consistent ordering
+        const distFF = frontFront.clone().sub(jointPoint).dot(dir);
+        const distBF = backFront.clone().sub(jointPoint).dot(dir);
+        let myFrontP1: THREE.Vector2, myFrontP2: THREE.Vector2;
+        if (distFF <= distBF) {
+            myFrontP1 = frontFront;
+            myFrontP2 = backFront;
+        } else {
+            myFrontP1 = backFront;
+            myFrontP2 = frontFront;
+        }
+
+        const distFB = frontBack.clone().sub(jointPoint).dot(dir);
+        const distBB = backBack.clone().sub(jointPoint).dot(dir);
+        let myBackP1: THREE.Vector2, myBackP2: THREE.Vector2;
+        if (distFB <= distBB) {
+            myBackP1 = frontBack;
+            myBackP2 = backBack;
+        } else {
+            myBackP1 = backBack;
+            myBackP2 = frontBack;
+        }
+
+        // Update left/right/top/bottom face vertices at the linked end
+        this.updateFacesAtMiterEnd(isAtFromEnd, myFrontP1, myBackP1, height);
+
+        // Remove end cap face at the linked end
+        const endCapPosition = isAtFromEnd ? 'front' : 'back';
+        const endCapFace = this._faces.get(endCapPosition);
+        if (endCapFace) {
+            this.removeChild(endCapFace);
+            this._faces.delete(endCapPosition);
+        }
+
+        // Create patch face (joint face) at the T-junction
+        const p1 = new THREE.Vector3(myFrontP1.x, myFrontP1.y, 0);
+        const p2 = new THREE.Vector3(myBackP1.x, myBackP1.y, 0);
+        const p3 = new THREE.Vector3(myBackP1.x, myBackP1.y, height);
+        const p4 = new THREE.Vector3(myFrontP1.x, myFrontP1.y, height);
+
+        const jointKey = `${otherWall.id}-${linkEnd}`;
+        activeKeys.add(jointKey);
+        const existing = this._miterEndCaps.get(jointKey);
+        if (existing) {
+            existing.outerContour = [p1, p2, p3, p4];
+        } else {
+            const jointFace = new FaceModel([p1, p2, p3, p4]);
+            this._miterEndCaps.set(jointKey, jointFace);
+            this.addChild(jointFace);
+        }
+    }
+
+    /**
+     * Handles middle-to-middle joint (cross-junction).
+     * My wall's midpoint connects to the other wall.
+     * Finds where the other wall's edges cross my face planes,
+     * splits left/right/top/bottom faces around the junction,
+     * and creates a patch face to close the joint.
+     */
+    private handleMiddleJoint(
+        dir: THREE.Vector2, perp: THREE.Vector2, offset: THREE.Vector2,
+        jointPoint: THREE.Vector2, wallLength: number,
+        otherWall: WallModel, otherDir: THREE.Vector2,
+        linkEnd: string, height: number, activeKeys: Set<string>
+    ): void {
+        const halfWidth = this._width / 2;
+        const otherHalfWidth = otherWall.width / 2;
+        const otherPerp = new THREE.Vector2(-otherDir.y, otherDir.x);
+        const otherFrom = otherWall.from;
+
+        // Compute intersection of other wall's edge lines with my face planes
+        const myFrontLevel = jointPoint.dot(perp) + halfWidth;
+        const myBackLevel = jointPoint.dot(perp) - halfWidth;
+        const otherFrontOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, otherHalfWidth);
+        const otherBackOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, -otherHalfWidth);
+
+        const denom = otherDir.dot(perp);
+        if (Math.abs(denom) < 1e-10) return;
+
+        // Intersections on my front face plane
+        const tFF = (myFrontLevel - otherFrontOrigin.dot(perp)) / denom;
+        const frontFront = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFF);
+        const tBF = (myFrontLevel - otherBackOrigin.dot(perp)) / denom;
+        const backFront = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBF);
+
+        // Intersections on my back face plane
+        const tFB = (myBackLevel - otherFrontOrigin.dot(perp)) / denom;
+        const frontBack = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFB);
+        const tBB = (myBackLevel - otherBackOrigin.dot(perp)) / denom;
+        const backBack = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBB);
+
+        // Sort intersection points along my wall direction
+        const dFF = frontFront.clone().sub(jointPoint).dot(dir);
+        const dBF = backFront.clone().sub(jointPoint).dot(dir);
+
+        let leftS1: THREE.Vector2, leftS2: THREE.Vector2;
+        let leftD1: number, leftD2: number;
+        if (dFF <= dBF) {
+            leftS1 = frontFront; leftS2 = backFront;
+            leftD1 = dFF; leftD2 = dBF;
+        } else {
+            leftS1 = backFront; leftS2 = frontFront;
+            leftD1 = dBF; leftD2 = dFF;
+        }
+
+        const dFB = frontBack.clone().sub(jointPoint).dot(dir);
+        const dBB = backBack.clone().sub(jointPoint).dot(dir);
+
+        let rightS1: THREE.Vector2, rightS2: THREE.Vector2;
+        let rightD1: number, rightD2: number;
+        if (dFB <= dBB) {
+            rightS1 = frontBack; rightS2 = backBack;
+            rightD1 = dFB; rightD2 = dBB;
+        } else {
+            rightS1 = backBack; rightS2 = frontBack;
+            rightD1 = dBB; rightD2 = dFB;
+        }
+
+        const from = this._from;
+        const to = this._to;
+
+        // Split left face into two parts around the junction
+        const leftFace = this._faces.get('left');
+        if (leftFace) {
+            const splitBefore = new THREE.Vector3(leftS1.x, leftS1.y, 0);
+            const splitAfter = new THREE.Vector3(leftS2.x, leftS2.y, 0);
+            const splitBeforeTop = new THREE.Vector3(leftS1.x, leftS1.y, height);
+            const splitAfterTop = new THREE.Vector3(leftS2.x, leftS2.y, height);
+
+            leftFace.outerContour = [
+                new THREE.Vector3(from.x + offset.x, from.y + offset.y, 0),
+                splitBefore,
+                splitBeforeTop,
+                new THREE.Vector3(from.x + offset.x, from.y + offset.y, height),
+            ];
+
+            const leftAfterKey = `${otherWall.id}-${linkEnd}-left-after`;
+            activeKeys.add(leftAfterKey);
+            const leftAfter = new FaceModel([
+                splitAfter,
+                new THREE.Vector3(to.x + offset.x, to.y + offset.y, 0),
+                new THREE.Vector3(to.x + offset.x, to.y + offset.y, height),
+                splitAfterTop,
+            ]);
+            this._splitFaces.set(leftAfterKey, leftAfter);
+            this.addChild(leftAfter);
+        }
+
+        // Split right face into two parts around the junction
+        const rightFace = this._faces.get('right');
+        if (rightFace) {
+            const splitBefore = new THREE.Vector3(rightS1.x, rightS1.y, 0);
+            const splitAfter = new THREE.Vector3(rightS2.x, rightS2.y, 0);
+            const splitBeforeTop = new THREE.Vector3(rightS1.x, rightS1.y, height);
+            const splitAfterTop = new THREE.Vector3(rightS2.x, rightS2.y, height);
+
+            rightFace.outerContour = [
+                splitBefore,
+                new THREE.Vector3(from.x - offset.x, from.y - offset.y, 0),
+                new THREE.Vector3(from.x - offset.x, from.y - offset.y, height),
+                splitBeforeTop,
+            ];
+
+            const rightAfterKey = `${otherWall.id}-${linkEnd}-right-after`;
+            activeKeys.add(rightAfterKey);
+            const rightAfter = new FaceModel([
+                new THREE.Vector3(to.x - offset.x, to.y - offset.y, 0),
+                splitAfter,
+                splitAfterTop,
+                new THREE.Vector3(to.x - offset.x, to.y - offset.y, height),
+            ]);
+            this._splitFaces.set(rightAfterKey, rightAfter);
+            this.addChild(rightAfter);
+        }
+
+        // Split top face into two parts around the junction
+        const topFace = this._faces.get('top');
+        if (topFace) {
+            topFace.outerContour = [
+                new THREE.Vector3(from.x + offset.x, from.y + offset.y, height),
+                new THREE.Vector3(from.x - offset.x, from.y - offset.y, height),
+                new THREE.Vector3(rightS1.x, rightS1.y, height),
+                new THREE.Vector3(leftS1.x, leftS1.y, height),
+            ];
+
+            const topAfterKey = `${otherWall.id}-${linkEnd}-top-after`;
+            activeKeys.add(topAfterKey);
+            const topAfter = new FaceModel([
+                new THREE.Vector3(leftS2.x, leftS2.y, height),
+                new THREE.Vector3(rightS2.x, rightS2.y, height),
+                new THREE.Vector3(to.x - offset.x, to.y - offset.y, height),
+                new THREE.Vector3(to.x + offset.x, to.y + offset.y, height),
+            ]);
+            this._splitFaces.set(topAfterKey, topAfter);
+            this.addChild(topAfter);
+        }
+
+        // Split bottom face into two parts around the junction
+        const bottomFace = this._faces.get('bottom');
+        if (bottomFace) {
+            bottomFace.outerContour = [
+                new THREE.Vector3(from.x + offset.x, from.y + offset.y, 0),
+                new THREE.Vector3(leftS1.x, leftS1.y, 0),
+                new THREE.Vector3(rightS1.x, rightS1.y, 0),
+                new THREE.Vector3(from.x - offset.x, from.y - offset.y, 0),
+            ];
+
+            const bottomAfterKey = `${otherWall.id}-${linkEnd}-bottom-after`;
+            activeKeys.add(bottomAfterKey);
+            const bottomAfter = new FaceModel([
+                new THREE.Vector3(leftS2.x, leftS2.y, 0),
+                new THREE.Vector3(to.x + offset.x, to.y + offset.y, 0),
+                new THREE.Vector3(to.x - offset.x, to.y - offset.y, 0),
+                new THREE.Vector3(rightS2.x, rightS2.y, 0),
+            ]);
+            this._splitFaces.set(bottomAfterKey, bottomAfter);
+            this.addChild(bottomAfter);
+        }
+
+        // Create joint patch face at the junction
+        const p1 = new THREE.Vector3(leftS1.x, leftS1.y, 0);
+        const p2 = new THREE.Vector3(rightS1.x, rightS1.y, 0);
+        const p3 = new THREE.Vector3(rightS1.x, rightS1.y, height);
+        const p4 = new THREE.Vector3(leftS1.x, leftS1.y, height);
+
+        const jointKey = `${otherWall.id}-${linkEnd}`;
+        activeKeys.add(jointKey);
+        const existing = this._miterEndCaps.get(jointKey);
+        if (existing) {
+            existing.outerContour = [p1, p2, p3, p4];
+        } else {
+            const jointFace = new FaceModel([p1, p2, p3, p4]);
+            this._miterEndCaps.set(jointKey, jointFace);
+            this.addChild(jointFace);
+        }
+    }
+
     /**
       * Clears and disposes all hole reveal faces.
       */
@@ -1059,6 +1410,7 @@ export class WallModel extends BaseModel {
 
         this.clearHoleRevealFaces();
         this.clearMiterEndCaps();
+        this.clearSplitFaces();
 
         super.dispose();
     }
