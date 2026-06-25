@@ -56,7 +56,7 @@ export class Scene3DManager {
         );
 
         // Initialize renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: false });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
 
         // Setup camera model integration (must precede controls creation)
         this.setupCameraModel();
@@ -185,7 +185,11 @@ export class Scene3DManager {
         const width = Math.floor(size.width * pixelRatio);
         const height = Math.floor(size.height * pixelRatio);
 
-        this.composer = new EffectComposer(this.renderer);
+        const renderTarget = new THREE.WebGLRenderTarget(width, height, {
+            samples: 4,
+            type: THREE.HalfFloatType,
+        });
+        this.composer = new EffectComposer(this.renderer, renderTarget);
         this.composer.setSize(width, height);
 
         const renderPass = new RenderPass(this.scene, this.camera);
