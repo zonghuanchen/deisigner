@@ -65,6 +65,31 @@ interface FaceConfig {
     innerContours?: THREE.Vector3[][];
 }
 
+/**
+ * Data for a single middle-joint split on this wall.
+ * Collected during link iteration and processed together by processMiddleSplits().
+ */
+interface MiddleSplitData {
+    /** Distance along wall direction where other wall's near edge crosses my front (+offset) face */
+    frontDist: number;
+    /** Distance along wall direction where other wall's far edge crosses my front (+offset) face */
+    backDist: number;
+    /** 2D point on front (+offset) face at frontDist */
+    frontPoint: THREE.Vector2;
+    /** 2D point on front (+offset) face at backDist */
+    backPoint: THREE.Vector2;
+    /** Distance along wall for right (-offset) face near intersection */
+    rightFrontDist: number;
+    /** Distance along wall for right (-offset) face far intersection */
+    rightBackDist: number;
+    /** 2D point on back (-offset) face at rightFrontDist */
+    rightFrontPoint: THREE.Vector2;
+    /** 2D point on back (-offset) face at rightBackDist */
+    rightBackPoint: THREE.Vector2;
+    /** Reference back to the split source for patch face creation */
+    split: { otherWall: WallModel; linkEnd: string; activeKeys: Set<string> };
+}
+
 export interface WallChangeEvent {
     type: 'change';
     wall: WallModel;
@@ -326,7 +351,7 @@ export class WallModel extends BaseModel {
      * Determines which endpoint of this wall is closest to the given wall.
      * Returns 'from' if this wall's start point is nearer, 'to' otherwise.
      */
-    private computeLinkEnd(otherWall: WallModel): 'from' | 'to' {
+    private computeLinkEnd(otherWall: WallModel): 'from' | 'to' | 'middle' {
         const fromMinDist = Math.min(
             this._from.distanceTo(otherWall.from),
             this._from.distanceTo(otherWall.to)
@@ -335,7 +360,28 @@ export class WallModel extends BaseModel {
             this._to.distanceTo(otherWall.from),
             this._to.distanceTo(otherWall.to)
         );
-        return fromMinDist <= toMinDist ? 'from' : 'to';
+        const bestEndDist = Math.min(fromMinDist, toMinDist);
+        const bestEnd = fromMinDist <= toMinDist ? 'from' : 'to';
+
+        // Check if the other wall intersects this wall's interior (middle)
+        const direction = new THREE.Vector2().subVectors(this._to, this._from);
+        const len = direction.length();
+        if (len > 0) {
+            const d = direction.clone().normalize();
+            const p = new THREE.Vector2().subVectors(otherWall.from, this._from);
+            const t1 = p.dot(d);
+            const p2 = new THREE.Vector2().subVectors(otherWall.to, this._from);
+            const t2 = p2.dot(d);
+            const tMin = Math.min(t1, t2);
+            const tMax = Math.max(t1, t2);
+            const tolerance = 0.01;
+            // Other wall spans across this wall's interior
+            if (tMin < len - tolerance && tMax > tolerance && bestEndDist > tolerance) {
+                return 'middle';
+            }
+        }
+
+        return bestEnd;
     }
 
     /**
@@ -661,6 +707,8 @@ export class WallModel extends BaseModel {
         const perp = new THREE.Vector2(-dir.y, dir.x);
         const offset = perp.clone().multiplyScalar(halfWidth);
 
+        const middleSplits: { otherWall: WallModel; otherDir: THREE.Vector2; linkEnd: string; jointPoint: THREE.Vector2; height: number; activeKeys: Set<string> }[] = [];
+
         for (const link of this._links) {
             const otherWall = link.wall;
             const otherFrom = otherWall.from;
@@ -671,9 +719,21 @@ export class WallModel extends BaseModel {
             const otherDir = new THREE.Vector2().subVectors(otherTo, otherFrom).normalize();
 
             const myIsMiddle = link.end === 'middle';
-            const jointPoint = myIsMiddle
-                ? new THREE.Vector2().copy(from).addScaledVector(dir, length / 2)
-                : (link.end === 'from' ? from : to);
+
+            // For middle links, find the actual intersection point along this wall
+            let jointPoint: THREE.Vector2;
+            if (myIsMiddle) {
+                const toFrom = new THREE.Vector2().subVectors(otherFrom, from);
+                const toTo = new THREE.Vector2().subVectors(otherTo, from);
+                const tFrom = toFrom.dot(dir);
+                const tTo = toTo.dot(dir);
+                const tMin = Math.min(tFrom, tTo);
+                const tMax = Math.max(tFrom, tTo);
+                const tProj = Math.max(0, Math.min(length, (tMin + tMax) / 2));
+                jointPoint = new THREE.Vector2().copy(from).addScaledVector(dir, tProj);
+            } else {
+                jointPoint = link.end === 'from' ? from : to;
+            }
 
             // Determine which end of the other wall connects, or 'middle'
             const tolerance = 0.01;
@@ -704,27 +764,18 @@ export class WallModel extends BaseModel {
                     otherWall, otherDir, link.end, height, activeKeys
                 );
             } else if (myIsMiddle) {
-                // Case 3: my midpoint → other wall (middle or endpoint)
-                // For perpendicular T-junctions, do not split this wall's faces —
-                // the other wall simply terminates at this wall's body.
-                // Splitting would produce degenerate (zero-width) geometry when
-                // front and back intersection points converge.
-                const dotProduct = Math.abs(dir.dot(otherDir));
-                if (dotProduct < 0.01) {
-                    // Perpendicular T-junction: clean up any stale patch face
-                    const jtKey = `${otherWall.id}-${link.end}`;
-                    const staleFace = this._miterEndCaps.get(jtKey);
-                    if (staleFace) {
-                        this.removeChild(staleFace);
-                        this._miterEndCaps.delete(jtKey);
-                    }
-                } else {
-                    this.handleMiddleJoint(
-                        dir, perp, offset, jointPoint, length,
-                        otherWall, otherDir, link.end, height, activeKeys
-                    );
-                }
+                // Case 3: my midpoint → other wall
+                // Perpendicular or not, middle joints always need face splitting
+                middleSplits.push({
+                    otherWall, otherDir, linkEnd: link.end,
+                    jointPoint, height, activeKeys,
+                });
             }
+        }
+
+        // Process all middle-joint splits together (N joints → N+1 segments per face)
+        if (middleSplits.length > 0) {
+            this.processMiddleSplits(middleSplits, dir, perp, offset, length);
         }
 
         // Remove miter caps for links that no longer exist
@@ -1100,187 +1151,211 @@ export class WallModel extends BaseModel {
     }
 
     /**
-     * Handles middle-to-middle joint (cross-junction).
-     * My wall's midpoint connects to the other wall.
-     * Finds where the other wall's edges cross my face planes,
-     * splits left/right/top/bottom faces around the junction,
-     * and creates a patch face to close the joint.
+     * Processes all middle-joint splits together.
+     * N middle joints → N+1 face segments per side face (left/right/top/bottom).
+     * Each joint also produces a patch face to close the junction gap.
      */
-    private handleMiddleJoint(
-        dir: THREE.Vector2, perp: THREE.Vector2, offset: THREE.Vector2,
-        jointPoint: THREE.Vector2, wallLength: number,
-        otherWall: WallModel, otherDir: THREE.Vector2,
-        linkEnd: string, height: number, activeKeys: Set<string>
+    private processMiddleSplits(
+        splits: { otherWall: WallModel; otherDir: THREE.Vector2; linkEnd: string; jointPoint: THREE.Vector2; height: number; activeKeys: Set<string> }[],
+        dir: THREE.Vector2, perp: THREE.Vector2, offset: THREE.Vector2, wallLength: number
     ): void {
         const halfWidth = this._width / 2;
-        const otherHalfWidth = otherWall.width / 2;
-        const otherPerp = new THREE.Vector2(-otherDir.y, otherDir.x);
-        const otherFrom = otherWall.from;
-
-        // Compute intersection of other wall's edge lines with my face planes
-        const myFrontLevel = jointPoint.dot(perp) + halfWidth;
-        const myBackLevel = jointPoint.dot(perp) - halfWidth;
-        const otherFrontOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, otherHalfWidth);
-        const otherBackOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, -otherHalfWidth);
-
-        const denom = otherDir.dot(perp);
-        if (Math.abs(denom) < 1e-10) return;
-
-        // Intersections on my front face plane
-        const tFF = (myFrontLevel - otherFrontOrigin.dot(perp)) / denom;
-        const frontFront = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFF);
-        const tBF = (myFrontLevel - otherBackOrigin.dot(perp)) / denom;
-        const backFront = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBF);
-
-        // Intersections on my back face plane
-        const tFB = (myBackLevel - otherFrontOrigin.dot(perp)) / denom;
-        const frontBack = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(otherDir, tFB);
-        const tBB = (myBackLevel - otherBackOrigin.dot(perp)) / denom;
-        const backBack = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(otherDir, tBB);
-
-        // Sort intersection points along my wall direction
-        const dFF = frontFront.clone().sub(jointPoint).dot(dir);
-        const dBF = backFront.clone().sub(jointPoint).dot(dir);
-
-        let leftS1: THREE.Vector2, leftS2: THREE.Vector2;
-        let leftD1: number, leftD2: number;
-        if (dFF <= dBF) {
-            leftS1 = frontFront; leftS2 = backFront;
-            leftD1 = dFF; leftD2 = dBF;
-        } else {
-            leftS1 = backFront; leftS2 = frontFront;
-            leftD1 = dBF; leftD2 = dFF;
-        }
-
-        const dFB = frontBack.clone().sub(jointPoint).dot(dir);
-        const dBB = backBack.clone().sub(jointPoint).dot(dir);
-
-        let rightS1: THREE.Vector2, rightS2: THREE.Vector2;
-        let rightD1: number, rightD2: number;
-        if (dFB <= dBB) {
-            rightS1 = frontBack; rightS2 = backBack;
-            rightD1 = dFB; rightD2 = dBB;
-        } else {
-            rightS1 = backBack; rightS2 = frontBack;
-            rightD1 = dBB; rightD2 = dFB;
-        }
-
         const from = this._from;
         const to = this._to;
+        const height = this._height;
 
-        // Split left face into two parts around the junction
+        // 1. Compute intersection data for each split
+        const splitData: MiddleSplitData[] = [];
+        for (const s of splits) {
+            const otherHalfWidth = s.otherWall.width / 2;
+            const otherPerp = new THREE.Vector2(-s.otherDir.y, s.otherDir.x);
+            const otherFrom = s.otherWall.from;
+
+            const myFrontLevel = s.jointPoint.dot(perp) + halfWidth;
+            const myBackLevel = s.jointPoint.dot(perp) - halfWidth;
+            const otherFrontOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, otherHalfWidth);
+            const otherBackOrigin = new THREE.Vector2().copy(otherFrom).addScaledVector(otherPerp, -otherHalfWidth);
+
+            const denom = s.otherDir.dot(perp);
+            if (Math.abs(denom) < 1e-10) continue;
+
+            const tFF = (myFrontLevel - otherFrontOrigin.dot(perp)) / denom;
+            const frontFront = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(s.otherDir, tFF);
+            const tBF = (myFrontLevel - otherBackOrigin.dot(perp)) / denom;
+            const backFront = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(s.otherDir, tBF);
+
+            const tFB = (myBackLevel - otherFrontOrigin.dot(perp)) / denom;
+            const frontBack = new THREE.Vector2().copy(otherFrontOrigin).addScaledVector(s.otherDir, tFB);
+            const tBB = (myBackLevel - otherBackOrigin.dot(perp)) / denom;
+            const backBack = new THREE.Vector2().copy(otherBackOrigin).addScaledVector(s.otherDir, tBB);
+
+            const dFF = frontFront.clone().sub(s.jointPoint).dot(dir);
+            const dBF = backFront.clone().sub(s.jointPoint).dot(dir);
+            let frontDist: number, frontPt: THREE.Vector2, backDist: number, backPt: THREE.Vector2;
+            if (dFF <= dBF) {
+                frontDist = dFF; frontPt = frontFront;
+                backDist = dBF; backPt = backFront;
+            } else {
+                frontDist = dBF; frontPt = backFront;
+                backDist = dFF; backPt = frontFront;
+            }
+
+            const dFB = frontBack.clone().sub(s.jointPoint).dot(dir);
+            const dBB = backBack.clone().sub(s.jointPoint).dot(dir);
+            let rFrontDist: number, rFrontPt: THREE.Vector2, rBackDist: number, rBackPt: THREE.Vector2;
+            if (dFB <= dBB) {
+                rFrontDist = dFB; rFrontPt = frontBack;
+                rBackDist = dBB; rBackPt = backBack;
+            } else {
+                rFrontDist = dBB; rFrontPt = backBack;
+                rBackDist = dFB; rBackPt = frontBack;
+            }
+
+            splitData.push({
+                frontDist, backDist, frontPoint: frontPt, backPoint: backPt,
+                rightFrontDist: rFrontDist, rightBackDist: rBackDist,
+                rightFrontPoint: rFrontPt, rightBackPoint: rBackPt,
+                split: s,
+            });
+        }
+
+        if (splitData.length === 0) return;
+
+        // Sort by front distance along wall
+        splitData.sort((a, b) => a.frontDist - b.frontDist);
+
+        // 2. Build segment boundaries
+        const n = splitData.length;
+        const leftBoundaryPts: THREE.Vector2[] = [new THREE.Vector2(from.x + offset.x, from.y + offset.y)];
+        const rightBoundaryPts: THREE.Vector2[] = [new THREE.Vector2(from.x - offset.x, from.y - offset.y)];
+        for (const sd of splitData) {
+            leftBoundaryPts.push(sd.frontPoint);
+            rightBoundaryPts.push(sd.rightBackPoint);
+        }
+        leftBoundaryPts.push(new THREE.Vector2(to.x + offset.x, to.y + offset.y));
+        rightBoundaryPts.push(new THREE.Vector2(to.x - offset.x, to.y - offset.y));
+
         const leftFace = this._faces.get('left');
-        if (leftFace) {
-            const splitBefore = new THREE.Vector3(leftS1.x, leftS1.y, 0);
-            const splitAfter = new THREE.Vector3(leftS2.x, leftS2.y, 0);
-            const splitBeforeTop = new THREE.Vector3(leftS1.x, leftS1.y, height);
-            const splitAfterTop = new THREE.Vector3(leftS2.x, leftS2.y, height);
-
-            leftFace.outerContour = [
-                new THREE.Vector3(from.x + offset.x, from.y + offset.y, 0),
-                splitBefore,
-                splitBeforeTop,
-                new THREE.Vector3(from.x + offset.x, from.y + offset.y, height),
-            ];
-
-            const leftAfterKey = `${otherWall.id}-${linkEnd}-left-after`;
-            activeKeys.add(leftAfterKey);
-            const leftAfter = new FaceModel([
-                splitAfter,
-                new THREE.Vector3(to.x + offset.x, to.y + offset.y, 0),
-                new THREE.Vector3(to.x + offset.x, to.y + offset.y, height),
-                splitAfterTop,
-            ]);
-            this._splitFaces.set(leftAfterKey, leftAfter);
-            this.addChild(leftAfter);
-        }
-
-        // Split right face into two parts around the junction
         const rightFace = this._faces.get('right');
-        if (rightFace) {
-            const splitBefore = new THREE.Vector3(rightS1.x, rightS1.y, 0);
-            const splitAfter = new THREE.Vector3(rightS2.x, rightS2.y, 0);
-            const splitBeforeTop = new THREE.Vector3(rightS1.x, rightS1.y, height);
-            const splitAfterTop = new THREE.Vector3(rightS2.x, rightS2.y, height);
-
-            rightFace.outerContour = [
-                splitBefore,
-                new THREE.Vector3(from.x - offset.x, from.y - offset.y, 0),
-                new THREE.Vector3(from.x - offset.x, from.y - offset.y, height),
-                splitBeforeTop,
-            ];
-
-            const rightAfterKey = `${otherWall.id}-${linkEnd}-right-after`;
-            activeKeys.add(rightAfterKey);
-            const rightAfter = new FaceModel([
-                new THREE.Vector3(to.x - offset.x, to.y - offset.y, 0),
-                splitAfter,
-                splitAfterTop,
-                new THREE.Vector3(to.x - offset.x, to.y - offset.y, height),
-            ]);
-            this._splitFaces.set(rightAfterKey, rightAfter);
-            this.addChild(rightAfter);
-        }
-
-        // Split top face into two parts around the junction
         const topFace = this._faces.get('top');
-        if (topFace) {
-            topFace.outerContour = [
-                new THREE.Vector3(from.x + offset.x, from.y + offset.y, height),
-                new THREE.Vector3(from.x - offset.x, from.y - offset.y, height),
-                new THREE.Vector3(rightS1.x, rightS1.y, height),
-                new THREE.Vector3(leftS1.x, leftS1.y, height),
-            ];
-
-            const topAfterKey = `${otherWall.id}-${linkEnd}-top-after`;
-            activeKeys.add(topAfterKey);
-            const topAfter = new FaceModel([
-                new THREE.Vector3(leftS2.x, leftS2.y, height),
-                new THREE.Vector3(rightS2.x, rightS2.y, height),
-                new THREE.Vector3(to.x - offset.x, to.y - offset.y, height),
-                new THREE.Vector3(to.x + offset.x, to.y + offset.y, height),
-            ]);
-            this._splitFaces.set(topAfterKey, topAfter);
-            this.addChild(topAfter);
-        }
-
-        // Split bottom face into two parts around the junction
         const bottomFace = this._faces.get('bottom');
-        if (bottomFace) {
-            bottomFace.outerContour = [
-                new THREE.Vector3(from.x + offset.x, from.y + offset.y, 0),
-                new THREE.Vector3(leftS1.x, leftS1.y, 0),
-                new THREE.Vector3(rightS1.x, rightS1.y, 0),
-                new THREE.Vector3(from.x - offset.x, from.y - offset.y, 0),
-            ];
+        const leftHoleContours = leftFace ? leftFace.innerContours : [];
+        const rightHoleContours = rightFace ? rightFace.innerContours : [];
+        const topHoleContours = topFace ? topFace.innerContours : [];
+        const bottomHoleContours = bottomFace ? bottomFace.innerContours : [];
 
-            const bottomAfterKey = `${otherWall.id}-${linkEnd}-bottom-after`;
-            activeKeys.add(bottomAfterKey);
-            const bottomAfter = new FaceModel([
-                new THREE.Vector3(leftS2.x, leftS2.y, 0),
-                new THREE.Vector3(to.x + offset.x, to.y + offset.y, 0),
-                new THREE.Vector3(to.x - offset.x, to.y - offset.y, 0),
-                new THREE.Vector3(rightS2.x, rightS2.y, 0),
-            ]);
-            this._splitFaces.set(bottomAfterKey, bottomAfter);
-            this.addChild(bottomAfter);
+        // Helper: filter hole contours that overlap with a segment [segStart, segEnd]
+        const filterContours = (contours: THREE.Vector3[][], segStart: number, segEnd: number): THREE.Vector3[][] => {
+            return contours.filter(contour => {
+                let minD = Infinity, maxD = -Infinity;
+                for (const v of contour) {
+                    const d = new THREE.Vector2(v.x - from.x, v.y - from.y).dot(dir);
+                    minD = Math.min(minD, d);
+                    maxD = Math.max(maxD, d);
+                }
+                return maxD > segStart && minD < segEnd;
+            });
+        };
+
+        // 3. Create N+1 segments for left and right faces
+        for (let i = 0; i <= n; i++) {
+            const lA = leftBoundaryPts[i], lB = leftBoundaryPts[i + 1];
+            const rA = rightBoundaryPts[i], rB = rightBoundaryPts[i + 1];
+
+            // Compute segment range along wall direction
+            const segStart = new THREE.Vector2(lA.x - from.x, lA.y - from.y).dot(dir);
+            const segEnd = new THREE.Vector2(lB.x - from.x, lB.y - from.y).dot(dir);
+            const leftSegContours = filterContours(leftHoleContours, segStart, segEnd);
+            const rightSegContours = filterContours(rightHoleContours, segStart, segEnd);
+
+            if (leftFace) {
+                const verts = [new THREE.Vector3(lA.x, lA.y, 0), new THREE.Vector3(lB.x, lB.y, 0), new THREE.Vector3(lB.x, lB.y, height), new THREE.Vector3(lA.x, lA.y, height)];
+                if (i === 0) {
+                    leftFace.outerContour = verts;
+                    leftFace.innerContours = leftSegContours;
+                } else {
+                    const key = `msplit-left-${i}`;
+                    const f = new FaceModel(verts, leftSegContours);
+                    this._splitFaces.set(key, f);
+                    this.addChild(f);
+                }
+            }
+
+            if (rightFace) {
+                const verts = [new THREE.Vector3(rB.x, rB.y, 0), new THREE.Vector3(rA.x, rA.y, 0), new THREE.Vector3(rA.x, rA.y, height), new THREE.Vector3(rB.x, rB.y, height)];
+                if (i === 0) {
+                    rightFace.outerContour = verts;
+                    rightFace.innerContours = rightSegContours;
+                } else {
+                    const key = `msplit-right-${i}`;
+                    const f = new FaceModel(verts, rightSegContours);
+                    this._splitFaces.set(key, f);
+                    this.addChild(f);
+                }
+            }
         }
 
-        // Create joint patch face at the junction
-        const p1 = new THREE.Vector3(leftS1.x, leftS1.y, 0);
-        const p2 = new THREE.Vector3(rightS1.x, rightS1.y, 0);
-        const p3 = new THREE.Vector3(rightS1.x, rightS1.y, height);
-        const p4 = new THREE.Vector3(leftS1.x, leftS1.y, height);
+        // 4. Create N+1 segments for top and bottom faces
+        for (let i = 0; i <= n; i++) {
+            const lA = leftBoundaryPts[i], lB = leftBoundaryPts[i + 1];
+            const rA = rightBoundaryPts[i], rB = rightBoundaryPts[i + 1];
 
-        const jointKey = `${otherWall.id}-${linkEnd}`;
-        activeKeys.add(jointKey);
-        const existing = this._miterEndCaps.get(jointKey);
-        if (existing) {
-            existing.outerContour = [p1, p2, p3, p4];
-        } else {
-            const jointFace = new FaceModel([p1, p2, p3, p4]);
-            this._miterEndCaps.set(jointKey, jointFace);
-            this.addChild(jointFace);
+            const segStart = new THREE.Vector2(lA.x - from.x, lA.y - from.y).dot(dir);
+            const segEnd = new THREE.Vector2(lB.x - from.x, lB.y - from.y).dot(dir);
+            const topSegContours = filterContours(topHoleContours, segStart, segEnd);
+            const bottomSegContours = filterContours(bottomHoleContours, segStart, segEnd);
+
+            if (topFace) {
+                const verts = [new THREE.Vector3(lA.x, lA.y, height), new THREE.Vector3(rA.x, rA.y, height), new THREE.Vector3(rB.x, rB.y, height), new THREE.Vector3(lB.x, lB.y, height)];
+                if (i === 0) {
+                    topFace.outerContour = verts;
+                    topFace.innerContours = topSegContours;
+                } else {
+                    const key = `msplit-top-${i}`;
+                    const f = new FaceModel(verts, topSegContours);
+                    this._splitFaces.set(key, f);
+                    this.addChild(f);
+                }
+            }
+
+            if (bottomFace) {
+                const verts = [new THREE.Vector3(lA.x, lA.y, 0), new THREE.Vector3(lB.x, lB.y, 0), new THREE.Vector3(rB.x, rB.y, 0), new THREE.Vector3(rA.x, rA.y, 0)];
+                if (i === 0) {
+                    bottomFace.outerContour = verts;
+                    bottomFace.innerContours = bottomSegContours;
+                } else {
+                    const key = `msplit-bottom-${i}`;
+                    const f = new FaceModel(verts, bottomSegContours);
+                    this._splitFaces.set(key, f);
+                    this.addChild(f);
+                }
+            }
+        }
+
+        // 5. Create patch face for each middle joint
+        for (let j = 0; j < n; j++) {
+            const sd = splitData[j];
+            const s = sd.split;
+
+            // Use the right-side intersection for the patch face
+            const rFrontPt = sd.rightFrontPoint;
+            const rBackPt = sd.rightBackPoint;
+
+            const p1 = new THREE.Vector3(sd.frontPoint.x, sd.frontPoint.y, 0);
+            const p2 = new THREE.Vector3(rFrontPt.x, rFrontPt.y, 0);
+            const p3 = new THREE.Vector3(rFrontPt.x, rFrontPt.y, height);
+            const p4 = new THREE.Vector3(sd.frontPoint.x, sd.frontPoint.y, height);
+
+            const jointKey = `${s.otherWall.id}-${s.linkEnd}`;
+            s.activeKeys.add(jointKey);
+            const existing = this._miterEndCaps.get(jointKey);
+            if (existing) {
+                existing.outerContour = [p1, p2, p3, p4];
+            } else {
+                const jointFace = new FaceModel([p1, p2, p3, p4]);
+                this._miterEndCaps.set(jointKey, jointFace);
+                this.addChild(jointFace);
+            }
         }
     }
 
@@ -1288,6 +1363,7 @@ export class WallModel extends BaseModel {
       * Clears and disposes all hole reveal faces.
       */
     private clearHoleRevealFaces(): void {
+
         for (const face of this._holeRevealFaces.values()) {
             this.removeChild(face);
         }
