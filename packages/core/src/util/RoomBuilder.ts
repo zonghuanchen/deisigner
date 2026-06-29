@@ -219,6 +219,7 @@ export class RoomBuilder {
             wall: WallModel;
         }
         const segments: WallSeg[] = [];
+        const crossSplitMap = new Map<number, number[]>();
 
         for (let i = 0; i < walls.length; i++) {
             const wall = walls[i];
@@ -226,10 +227,34 @@ export class RoomBuilder {
 
             for (let j = 0; j < walls.length; j++) {
                 if (i === j) continue;
+
+                // T-junction: other wall's endpoints land on this wall's body.
                 const t1 = this.pointOnSegmentParam(walls[j].from, wall.from, wall.to);
                 if (t1 !== null) splitTs.push(t1);
                 const t2 = this.pointOnSegmentParam(walls[j].to, wall.from, wall.to);
                 if (t2 !== null) splitTs.push(t2);
+
+                // X-junction: two walls cross each other in their interiors.
+                // Only check j > i to avoid computing the same pair twice.
+                if (j > i) {
+                    const xHit = this.segmentIntersectionParam(
+                        wall.from, wall.to, walls[j].from, walls[j].to
+                    );
+                    if (xHit) {
+                        // t is the parameter on wall i, u is on wall j.
+                        splitTs.push(xHit.t);
+                        // Store j's split parameter in a side map.
+                        const jTs = crossSplitMap.get(j) ?? [];
+                        jTs.push(xHit.u);
+                        crossSplitMap.set(j, jTs);
+                    }
+                }
+            }
+
+            // Merge cross-junction splits collected from earlier pairs.
+            const extraTs = crossSplitMap.get(i);
+            if (extraTs) {
+                for (const et of extraTs) splitTs.push(et);
             }
 
             splitTs.sort((a, b) => a - b);
@@ -534,6 +559,34 @@ export class RoomBuilder {
     }
 
     /**
+     * Computes the intersection of two line segments (A1→A2) and (B1→B2).
+     * Returns { t, u, point } where t ∈ (0,1) is the parameter on segment A
+     * and u ∈ (0,1) is the parameter on segment B, or null if the segments
+     * do not cross in their interiors (excluding endpoints).
+     */
+    private static segmentIntersectionParam(
+        a1: THREE.Vector2, a2: THREE.Vector2,
+        b1: THREE.Vector2, b2: THREE.Vector2
+    ): { t: number; u: number; point: THREE.Vector2 } | null {
+        const da = new THREE.Vector2().subVectors(a2, a1);
+        const db = new THREE.Vector2().subVectors(b2, b1);
+        const cross = da.x * db.y - da.y * db.x;
+        if (Math.abs(cross) < 1e-10) return null; // parallel or collinear
+
+        const d = new THREE.Vector2().subVectors(b1, a1);
+        const t = (d.x * db.y - d.y * db.x) / cross;
+        const u = (d.x * da.y - d.y * da.x) / cross;
+
+        // Exclude endpoints on both segments.
+        const eps = 1e-4;
+        if (t <= eps || t >= 1 - eps) return null;
+        if (u <= eps || u >= 1 - eps) return null;
+
+        const point = new THREE.Vector2(a1.x + t * da.x, a1.y + t * da.y);
+        return { t, u, point };
+    }
+
+    /**
      * Picks a representative room height from the walls enclosing the face.
      * Uses the minimum wall height so the ceiling never exceeds any wall.
      */
@@ -649,6 +702,22 @@ export class RoomBuilder {
                     wallA.addLink({ wall: wallB, end: endName });
                     wallB.addLink({ wall: wallA, end: 'middle' });
                 }
+            }
+        }
+
+        // 5. Detect X-junctions: walls that cross each other in their
+        //    interiors (neither endpoint touches the other wall).
+        for (let i = 0; i < walls.length; i++) {
+            for (let j = i + 1; j < walls.length; j++) {
+                const xHit = this.segmentIntersectionParam(
+                    walls[i].from, walls[i].to,
+                    walls[j].from, walls[j].to
+                );
+                if (!xHit) continue;
+
+                // Both walls cross in their interiors — create middle links.
+                walls[i].addLink({ wall: walls[j], end: 'middle' });
+                walls[j].addLink({ wall: walls[i], end: 'middle' });
             }
         }
     }
