@@ -777,7 +777,7 @@ export class WallModel extends BaseModel {
             }
         }
 
-        // Process all middle-joint splits together (N joints → N+1 segments per face)
+        // Process all middle-joint splits together (N joints → 2N+1 segments per face)
         if (middleSplits.length > 0) {
             this.processMiddleSplits(middleSplits, dir, perp, offset, length, fromHasEndpoint, toHasEndpoint);
         }
@@ -1163,8 +1163,9 @@ export class WallModel extends BaseModel {
 
     /**
      * Processes all middle-joint splits together.
-     * N middle joints → N+1 face segments per side face (left/right/top/bottom).
-     * Each joint also produces a patch face to close the junction gap.
+     * N middle joints → 2N+1 face segments per side face (left/right/top/bottom).
+     * Each joint produces 2 boundary points (front and back edge of the crossing wall),
+     * resulting in three face types: wall segments (even indices) and joint-zone faces (odd indices).
      */
     private processMiddleSplits(
         splits: { otherWall: WallModel; otherDir: THREE.Vector2; linkEnd: string; jointPoint: THREE.Vector2; height: number; activeKeys: Set<string> }[],
@@ -1242,7 +1243,8 @@ export class WallModel extends BaseModel {
         const bottomFace = this._faces.get('bottom');
 
         // 2. Build segment boundaries
-        // Use actual face vertices at endpoints to preserve modifications by endpoint joint handlers
+        // Each middle joint adds 2 boundary points (front and back edge of the crossing wall)
+        // N joints → 2N+2 boundary points → 2N+1 segments per face (odd segments = joint faces)
         const n = splitData.length;
         const leftBoundaryPts: THREE.Vector2[] = [
             (fromHasEndpoint && leftFace)
@@ -1256,6 +1258,8 @@ export class WallModel extends BaseModel {
         ];
         for (const sd of splitData) {
             leftBoundaryPts.push(sd.frontPoint);
+            leftBoundaryPts.push(sd.backPoint);
+            rightBoundaryPts.push(sd.rightFrontPoint);
             rightBoundaryPts.push(sd.rightBackPoint);
         }
         leftBoundaryPts.push(
@@ -1286,8 +1290,10 @@ export class WallModel extends BaseModel {
             });
         };
 
-        // 3. Create N+1 segments for left and right faces
-        for (let i = 0; i <= n; i++) {
+        // 3. Create 2N+1 segments for left and right faces
+        // Odd-indexed segments are the joint-zone faces (third face per joint)
+        const totalSegs = 2 * n + 1;
+        for (let i = 0; i < totalSegs; i++) {
             const lA = leftBoundaryPts[i], lB = leftBoundaryPts[i + 1];
             const rA = rightBoundaryPts[i], rB = rightBoundaryPts[i + 1];
 
@@ -1324,8 +1330,8 @@ export class WallModel extends BaseModel {
             }
         }
 
-        // 4. Create N+1 segments for top and bottom faces
-        for (let i = 0; i <= n; i++) {
+        // 4. Create 2N+1 segments for top and bottom faces
+        for (let i = 0; i < totalSegs; i++) {
             const lA = leftBoundaryPts[i], lB = leftBoundaryPts[i + 1];
             const rA = rightBoundaryPts[i], rB = rightBoundaryPts[i + 1];
 
@@ -1358,29 +1364,6 @@ export class WallModel extends BaseModel {
                     this._splitFaces.set(key, f);
                     this.addChild(f);
                 }
-            }
-        }
-
-        // 5. Create patch face for each middle joint
-        for (let j = 0; j < n; j++) {
-            const sd = splitData[j];
-            const s = sd.split;
-
-            // Patch face spans across wall thickness: front (+offset) → back (-offset)
-            const p1 = new THREE.Vector3(sd.frontPoint.x, sd.frontPoint.y, 0);
-            const p2 = new THREE.Vector3(sd.backPoint.x, sd.backPoint.y, 0);
-            const p3 = new THREE.Vector3(sd.backPoint.x, sd.backPoint.y, height);
-            const p4 = new THREE.Vector3(sd.frontPoint.x, sd.frontPoint.y, height);
-
-            const jointKey = `${s.otherWall.id}-${s.linkEnd}`;
-            s.activeKeys.add(jointKey);
-            const existing = this._miterEndCaps.get(jointKey);
-            if (existing) {
-                existing.outerContour = [p1, p2, p3, p4];
-            } else {
-                const jointFace = new FaceModel([p1, p2, p3, p4]);
-                this._miterEndCaps.set(jointKey, jointFace);
-                this.addChild(jointFace);
             }
         }
     }
