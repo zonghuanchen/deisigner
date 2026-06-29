@@ -179,14 +179,28 @@ export class DrawWallCommand implements Command {
     }
 
     /**
-     * 为新墙体的 from 和 to 端点建立双向接头（addLink）。
-     * 如果端点吸附到了现有墙体端点，则在两者之间创建 link。
+     * 为新墙体的 from 和 to 端点建立接头（addLink）。
+     * 处理三种情况：
+     * - 端点接头：新墙端点吸附到现有墙端点（endpoint-to-endpoint）
+     * - T 型接头：新墙端点落在现有墙内部（T-junction）
+     * - X 型接头：新墙穿过现有墙内部（cross-junction / middle-to-middle）
      */
     private createLinksForWall(wall: WallModel): void {
-        const positions: THREE.Vector2[] = [wall.from, wall.to];
+        const scene = CoreApp.getInstance().getScene();
+        const floor = scene.defaultFloor;
+        const walls = floor ? floor.walls : scene.walls;
+        const tolerance = 0.01;
 
+        const wallDir = new THREE.Vector2().subVectors(wall.to, wall.from);
+        const wallLen = wallDir.length();
+        const wallDirN = wallLen > 0 ? wallDir.clone().normalize() : new THREE.Vector2(1, 0);
+
+        // Track walls already linked via endpoint snap (to avoid duplicate links)
+        const endpointLinkedWalls = new Set<string>();
+
+        // 1. Endpoint-to-endpoint links (existing behavior)
+        const positions: THREE.Vector2[] = [wall.from, wall.to];
         for (const pos of positions) {
-            // 临时清除 previewWall 排除标记，使用 findSnapTarget 查找匹配端点
             const saved = this.previewWall;
             this.previewWall = wall;
             const target = this.findSnapTarget(pos);
@@ -194,9 +208,80 @@ export class DrawWallCommand implements Command {
 
             if (!target) continue;
 
-            // 双向 addLink：新墙 → 目标墙，目标墙 → 新墙
+            endpointLinkedWalls.add(target.wall.id);
             wall.addLink({ wall: target.wall });
             target.wall.addLink({ wall });
+        }
+        
+        // 2. T-junction and X-junction detection
+        for (const other of walls) {
+            if (other.id === wall.id) continue;
+            if (endpointLinkedWalls.has(other.id)) continue;
+
+            const otherDir = new THREE.Vector2().subVectors(other.to, other.from);
+            const otherLen = otherDir.length();
+            if (otherLen < tolerance) continue;
+            const otherDirN = otherDir.clone().normalize();
+            const otherPerp = new THREE.Vector2(-otherDirN.y, otherDirN.x);
+
+            // Project wall endpoints onto other wall's line
+            const fromToOther = new THREE.Vector2().subVectors(wall.from, other.from);
+            const toToOther = new THREE.Vector2().subVectors(wall.to, other.from);
+            const fromProj = fromToOther.dot(otherDirN);
+            const toProj = toToOther.dot(otherDirN);
+            const fromPerpDist = Math.abs(fromToOther.dot(otherPerp));
+            const toPerpDist = Math.abs(toToOther.dot(otherPerp));
+
+            // Check if wall.from is on other wall's interior (T-junction)
+            if (fromPerpDist < DrawWallCommand.ENDPOINT_SNAP_DISTANCE
+                && fromProj > tolerance && fromProj < otherLen - tolerance) {
+                wall.addLink({ wall: other }); // auto-detects 'from' end
+                other.addLink({ wall, end: 'middle' });
+                continue;
+            }
+
+            // Check if wall.to is on other wall's interior (T-junction)
+            if (toPerpDist < DrawWallCommand.ENDPOINT_SNAP_DISTANCE
+                && toProj > tolerance && toProj < otherLen - tolerance) {
+                wall.addLink({ wall: other }); // auto-detects 'to' end
+                other.addLink({ wall, end: 'middle' });
+                continue;
+            }
+
+            // Check for X-junction: wall crosses through other wall's interior
+            // Both segments must actually cross each other's infinite lines
+            const projMin = Math.min(fromProj, toProj);
+            const projMax = Math.max(fromProj, toProj);
+            if (projMin < otherLen - tolerance && projMax > tolerance) {
+                // Signed perpendicular distances of wall endpoints from other wall's line
+                const fromSignedPerp = fromToOther.dot(otherPerp);
+                const toSignedPerp = toToOther.dot(otherPerp);
+
+                // Wall endpoints must be on opposite sides of other wall's line
+                if (fromSignedPerp * toSignedPerp < 0) {
+                    // Other wall's endpoints must also be on opposite sides of new wall's line
+                    const myPerp = new THREE.Vector2(-wallDirN.y, wallDirN.x);
+                    const otherFromToMy = new THREE.Vector2().subVectors(other.from, wall.from);
+                    const otherToToMy = new THREE.Vector2().subVectors(other.to, wall.from);
+                    const otherFromSignedPerp = otherFromToMy.dot(myPerp);
+                    const otherToSignedPerp = otherToToMy.dot(myPerp);
+
+                    if (otherFromSignedPerp * otherToSignedPerp < 0) {
+                        // Both segments truly cross each other — verify not near endpoints
+                        const otherFromMyProj = otherFromToMy.dot(wallDirN);
+                        const otherToMyProj = otherToToMy.dot(wallDirN);
+
+                        const nearMyEndpoint =
+                            (Math.abs(otherFromSignedPerp) < tolerance && (otherFromMyProj < tolerance || otherFromMyProj > wallLen - tolerance)) ||
+                            (Math.abs(otherToSignedPerp) < tolerance && (otherToMyProj < tolerance || otherToMyProj > wallLen - tolerance));
+
+                        if (!nearMyEndpoint) {
+                            wall.addLink({ wall: other, end: 'middle' });
+                            other.addLink({ wall, end: 'middle' });
+                        }
+                    }
+                }
+            }
         }
     }
 
