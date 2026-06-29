@@ -46,43 +46,21 @@ npm run type-check   # 类型检查
 
 ## 整体架构
 
-`core/model` 数据对象注册到 `ModelRegistry`，`app/3d/display` 为每个模型注册3D展示对象，数据创建时通过ID自动关联3D展示。
+`core/model` 数据对象注册到 `ModelRegistry`。
+
+`app/src/3d/display` 为每个模型注册3D展示对象，数据创建时通过ID自动关联3D展示。
+`app/src/2d/display` 为每个模型注册2D展示对象，数据创建时通过ID自动关联2D展示。
 
 ## 参数化建模系统
 
-### pm-engine — 参数化引擎
+基于 `@jscad/modeling` 的节点图参数化建模引擎，支持基本体、布尔操作、约束变量驱动几何体动态更新。
 
-基于 `@jscad/modeling` 的节点图参数化建模引擎，提供纯数据驱动的几何构建能力。
+- **pm-engine**：参数化引擎核心，提供 `ParametricDef` 数据定义、`ConstraintSystem` 约束系统、几何体构建与 Three.js 转换工具
+- **pm-editor**：轻量级独立编辑器，直接渲染 pm-engine 数据，仅依赖 Three.js + React
 
-**核心概念：**
-- `ParametricDef`：JSON 格式的几何定义（基本体类型 + 参数 + 布尔操作 + 材质 + 变换）
-- `ConstraintSystem`：变量约束系统，支持用表达式绑定参数（如 `width * 2`），驱动几何体动态更新
-- `buildGeometries()`：将 `ParametricDef[]` 批量转换为 JSCAD 几何体
-- `buildSteps()`：输出分步构建过程，用于可视化展示布尔运算的中间结果
-
-**支持的基本体：** 正方体、长方体、圆柱、椭圆柱、椭球、测地球、圆角方体、圆角圆柱、球体、环体、多面体
-
-**布尔操作：** `subtract`（差集）、`union`（并集）、`intersect`（交集）
-
-**Three.js 辅助：** 提供 `jscadToBufferGeometry`、`buildMeshGroup`、`createThreeMaterial` 等工具函数，将引擎输出转换为 Three.js 可渲染对象。
-
-### pm-editor — 参数化编辑器
-
-轻量级独立编辑器，直接渲染 pm-engine 的 `ParametricDef` 数据，**不依赖** `@designer/app`，仅使用 Three.js + React。
-
-![pm-editor 界面截图](packages/pm-editor/image.png)
-
-**功能：**
-- 在 3D 场景中点击选取实体，拖拽移动位置
-- 左侧面板：实体列表、约束变量滑块、变换/材质/参数编辑
-- 右侧面板：实时展示 `ParametricDef[]` JSON 数据
-- 底部工具栏：交互式添加基本体（`AddModelCommand` 预览放置）
-- 约束变量实时驱动几何体更新
-
-**快速启动：**
-```bash
-npm run dev --workspace=@designer/pm-editor    # 端口 3008
-```
+详细说明参见：
+- [pm-editor README](packages/pm-editor/README.md) — 功能介绍与快速启动
+- [pm-editor agents.md](packages/pm-editor/agents.md) — 架构设计与开发指南
 
 ## 许可证
 
